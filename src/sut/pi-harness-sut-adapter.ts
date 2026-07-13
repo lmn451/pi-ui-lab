@@ -1,5 +1,6 @@
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { ScopedExternalRuntimeController } from '../process/scoped-virtual-clock.js';
 import type { Fixture, FixtureEvent, NotificationState, ReplayFrame, RecoveryState, UIState } from '../types.js';
 import { createPiSubagenturaAdapter } from './pi-subagentura-adapter.js';
 import type {
@@ -22,39 +23,66 @@ export class PiHarnessSutAdapter {
   }
 
   async run(fixture: Fixture): Promise<SutObserverResult> {
-    const harness = await this.loadHarness();
-    const module = await this.loadModule();
-    const session = await harness.createTestSession({
-      extensions: [resolve(this.config.cwd, this.config.extensionPath)],
-      cwd: this.config.cwd,
-      mockUI: {},
-    });
-    const uiCalls = session.events.ui as SutUiCall[];
-    const notificationCalls: SutUiCall[] = [];
-    const pi = { sendMessage: (...args: unknown[]) => notificationCalls.push({ method: 'sendMessage', args }) };
-    installUiBoundary(pi, session);
-    const frames: ReplayFrame[] = [];
+    const initialTime = fixture.timeline[0]?.at ?? this.now();
+    const runtime = new ScopedExternalRuntimeController(initialTime);
+    let session: TestSessionLike | undefined;
+    let restoreUiBoundary: (() => void) | undefined;
+    runtime.install();
+    const restoreExternalGlobals = installExternalGlobalsBoundary();
     try {
+      const harness = await this.loadHarness();
+      const module = await this.loadModule();
+      session = await harness.createTestSession({
+        extensions: [resolve(this.config.cwd, this.config.extensionPath)],
+        cwd: this.config.cwd,
+        mockUI: {},
+      });
+      const uiCalls = session.events.ui as SutUiCall[];
+      const notificationCalls: SutUiCall[] = [];
+      const pi = { sendMessage: (...args: unknown[]) => notificationCalls.push({ method: 'sendMessage', args }) };
+      restoreUiBoundary = installUiBoundary(pi, session);
+      const frames: ReplayFrame[] = [];
       for (const event of fixture.timeline) {
-        const context = this.context(fixture, session, module, uiCalls, notificationCalls, pi, event);
+        runtime.moveTo(event.at);
+        const context = this.context(fixture, session, module, uiCalls, notificationCalls, pi, event, runtime);
         await this.fixtureAdapter.materializeEvent(event, context);
         await this.fixtureAdapter.invokeEvent(event, context);
+        runtime.advanceTo(event.at);
         frames.push(this.capture(frames.length, event, fixture, context));
       }
-      const finalContext = this.context(fixture, session, module, uiCalls, notificationCalls, pi);
+      const finalEvent = fixture.timeline.at(-1);
+      const finalContext = this.context(fixture, session, module, uiCalls, notificationCalls, pi, finalEvent, runtime);
       const observed = this.observe(finalContext);
       return { frames, ui: observed.ui, recovery: observed.recovery, uiCalls: [...uiCalls], notifications: [...notificationCalls] };
     } finally {
-      session.dispose();
-      removeUiBoundary();
+      try {
+        restoreUiBoundary?.();
+      } finally {
+        try {
+          session?.dispose();
+        } finally {
+          try {
+            restoreExternalGlobals();
+          } finally {
+            runtime.restore();
+          }
+        }
+      }
     }
   }
 
   private context(
     fixture: Fixture, session: TestSessionLike, module: Record<string, unknown>, uiCalls: SutUiCall[],
-    notificationCalls: SutUiCall[], pi: unknown, event?: FixtureEvent,
+    notificationCalls: SutUiCall[], pi: unknown, event: FixtureEvent | undefined,
+    runtime: ScopedExternalRuntimeController,
   ): SutObservationContext {
-    return { config: this.config, fixture, cwd: this.config.cwd, uiCalls, notificationCalls, module, session: session.session, pi, event };
+    const timestamp = event?.at ?? this.now();
+    return {
+      config: this.config, fixture, cwd: this.config.cwd, uiCalls, notificationCalls, module,
+      session: session.session, pi, event,
+      withVirtualClock: (invoke) => runtime.withVirtualTime(timestamp, invoke),
+      emitSessionStart: (reason = 'startup') => emitSessionStart(session, reason),
+    };
   }
 
   private capture(index: number, event: FixtureEvent, fixture: Fixture, context: SutObservationContext): ReplayFrame {
@@ -72,7 +100,10 @@ export class PiHarnessSutAdapter {
 
   private observe(context: SutObservationContext): { ui: UIState; recovery: RecoveryState } {
     const external = this.fixtureAdapter.observe(context);
-    return { ui: mapUi(context.uiCalls, context.notificationCalls, external.ui, this.now), recovery: external.recovery };
+    return {
+      ui: mapUi(context.uiCalls, context.notificationCalls, external.ui, notificationTime(context, this.now)),
+      recovery: external.recovery,
+    };
   }
 
   private async loadHarness(): Promise<HarnessLike> {
@@ -100,32 +131,69 @@ function validateConfig(config: ExternalSutConfig): ExternalSutConfig {
 function toModuleSpecifier(path: string): string {
   return pathToFileURL(path).href;
 }
-
-function installUiBoundary(pi: unknown, session: TestSessionLike): void {
-  const globals = globalThis as Record<string, unknown>;
-  globals.__piSubagenturaPiRef = pi;
-  const ui = session.events.ui;
-  globals.__piSubagenturaUi = createUiFacade(ui);
+async function emitSessionStart(session: TestSessionLike, reason: 'startup' | 'reload' | 'resume'): Promise<void> {
+  if (session.emitSessionStart) {
+    await session.emitSessionStart(reason);
+    return;
+  }
+  const runner = (session.session as {
+    extensionRunner?: { emit?: (event: unknown) => unknown };
+    _extensionRunner?: { emit?: (event: unknown) => unknown };
+  }).extensionRunner ?? (session.session as { _extensionRunner?: { emit?: (event: unknown) => unknown } })._extensionRunner;
+  if (!runner || typeof runner.emit !== 'function') {
+    throw new Error('Harness session does not expose its extension event runner');
+  }
+  await runner.emit({ type: 'session_start', reason });
 }
-function removeUiBoundary(): void {
+
+function installExternalGlobalsBoundary(): () => void {
   const globals = globalThis as Record<string, unknown>;
-  delete globals.__piSubagenturaPiRef;
-  delete globals.__piSubagenturaUi;
+  const previous = captureUiBoundary(globals, externalRuntimeKeys());
+  return () => restoreUiBoundary(globals, previous);
+}
+function externalRuntimeKeys(): string[] {
+  return [...uiBoundaryKeys(), '__piSubagenturaInteractivePollerHandle', '__piSubagenturaInjectCount'];
+}
+
+function installUiBoundary(pi: unknown, session: TestSessionLike): () => void {
+  const globals = globalThis as Record<string, unknown>;
+  const previous = captureUiBoundary(globals, uiBoundaryKeys());
+  globals.__piSubagenturaPiRef = pi;
+  globals.__piSubagenturaUi = createUiFacade(session.events.ui);
+  return () => restoreUiBoundary(globals, previous);
+}
+function captureUiBoundary(globals: Record<string, unknown>, keys: string[]): Map<string, PropertyDescriptor | undefined> {
+  const values = new Map<string, PropertyDescriptor | undefined>();
+  for (const key of keys) values.set(key, Object.getOwnPropertyDescriptor(globals, key));
+  return values;
+}
+function restoreUiBoundary(globals: Record<string, unknown>, previous: Map<string, PropertyDescriptor | undefined>): void {
+  for (const key of previous.keys()) {
+    const descriptor = previous.get(key);
+    if (descriptor) Object.defineProperty(globals, key, descriptor);
+    else delete globals[key];
+  }
+}
+function uiBoundaryKeys(): string[] {
+  return ['__piSubagenturaPiRef', '__piSubagenturaUi'];
 }
 function createUiFacade(calls: Array<{ method: string; args: unknown[] }>): Record<string, (...args: unknown[]) => void> {
   const record = (method: string) => (...args: unknown[]) => calls.push({ method, args });
   return { setStatus: record('setStatus'), setWidget: record('setWidget') };
 }
+function notificationTime(context: SutObservationContext, now: () => number): number {
+  return context.event?.at ?? now();
+}
 
-function mapUi(calls: SutUiCall[], notificationCalls: SutUiCall[], base: UIState, now: () => number): UIState {
+function mapUi(calls: SutUiCall[], notificationCalls: SutUiCall[], base: UIState, timestamp: number): UIState {
   const ui: UIState = { footer: { ...base.footer }, widgets: [...base.widgets], notifications: [...base.notifications], toolRenders: [...base.toolRenders] };
   let notificationIndex = ui.notifications.length;
   for (const call of calls) {
     if (call.method === 'setStatus') mapStatus(ui, call.args);
     if (call.method === 'setWidget') mapWidget(ui, call.args);
-    if (call.method === 'notify') addNotification(ui, call.args, notificationIndex++, now());
+    if (call.method === 'notify') addNotification(ui, call.args, notificationIndex++, timestamp);
   }
-  for (const call of notificationCalls) addNotification(ui, call.args, notificationIndex++, now());
+  for (const call of notificationCalls) addNotification(ui, call.args, notificationIndex++, timestamp);
   return ui;
 }
 function mapStatus(ui: UIState, args: unknown[]): void {

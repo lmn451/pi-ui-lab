@@ -37,15 +37,31 @@ or command execution is involved.
 
 ## Behavior and limitations
 
-`inspect` is the default action and presents a short result summary through
-Pi's documented `ctx.ui.notify()` and `ctx.ui.setWidget()` APIs. `replay`
-presents frame and checkpoint counts. The bridge owns the replay session and
-disposes it after every command. It does not duplicate replay logic, use
-private Pi imports, require a model, or create a tmux/Pi process.
+`inspect` is the default action. In Pi TUI mode it opens the same interactive
+inspector used by `pi-ui-lab inspect <fixture>`; non-TUI modes retain the concise
+widget/notification summary. `replay` presents frame and checkpoint counts. The
+bridge owns and disposes each replay session, uses only public Pi APIs, and does
+not create a tmux/Pi process.
 
 Supported options are `--action inspect|replay`, `--at <non-negative number>`,
 `--checkpoint <name>`, `--cols <positive integer>`, `--rows <positive integer>`,
 and `--theme <name>`. Unknown options and malformed values fail explicitly.
+
+## Inspector controls
+
+`pi-ui-lab inspect <fixture>` opens the inspector when stdin and stdout are TTYs;
+use `--non-interactive` (or a pipe) for deterministic text output. `/ui-lab` opens
+the same inspector in Pi TUI mode. The controls are:
+
+```text
+←/b previous frame     →/n next frame       space play/pause
+w cycle viewport width t cycle theme         j jump (ms or checkpoint:name)
+/ search agent/event/notification            g save SVG    i save PNG
+q or Escape close
+```
+
+Every panel line is truncated to the active terminal width. Saved images use
+`inspector-frame-<index>.svg` or `.png` in the current working directory.
 
 The Pi package is optional and isolated from the core runtime. `doctor` reports
 Pi as absent, importable, or compatible; importability alone is not treated as

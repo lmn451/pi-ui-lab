@@ -1,10 +1,11 @@
 import { FixtureLoader } from '../../fixtures/index.js';
-import { InspectorSession } from '../../inspector/index.js';
+import { InspectorSession, runStandaloneInspector } from '../../inspector/index.js';
 import type { Fixture } from '../../types.js';
 
 export interface InspectOptions {
   at?: string | number;
   checkpoint?: string;
+  nonInteractive?: boolean;
 }
 
 export async function runInspect(
@@ -26,7 +27,8 @@ export async function runInspect(
     } else {
       session.step();
     }
-    printInspectSummary(fixture, session);
+    if (isInteractive(opts)) await runStandaloneInspector(session);
+    else printInspectSummary(fixture, session);
   } finally {
     session.dispose();
   }
@@ -48,6 +50,10 @@ function parseInspectTime(value: string | number | undefined): number | undefine
     throw new Error(`Invalid inspect time: ${String(value)}`);
   }
   return parsed;
+}
+
+function isInteractive(opts: InspectOptions): boolean {
+  return !opts.nonInteractive && Boolean(process.stdin.isTTY && process.stdout.isTTY);
 }
 
 function printInspectSummary(fixture: Fixture, session: InspectorSession): void {

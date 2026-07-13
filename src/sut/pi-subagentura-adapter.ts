@@ -27,14 +27,11 @@ export function createPiSubagenturaAdapter(): ExternalFixtureAdapter {
     materializeEvent(event, context) {
       materialize(event, context, artifacts);
     },
-    invokeEvent(event, context) {
-      const module = context.module;
-      if (event.type === 'session_start' || event.type === 'reload' || isArtifactEvent(event)) {
-        callExport(module, 'rehydrateInteractiveSubagents', context.cwd);
-      }
-      if (event.type === 'poll' || event.type === 'reload' || isArtifactEvent(event)) {
-        callExport(module, 'pollArtifactChanges', context.pi);
-      }
+    async invokeEvent(event, context) {
+      if (event.type === 'session_start') await context.emitSessionStart('startup');
+      if (event.type === 'artifact_created') await context.emitSessionStart('resume');
+      if (event.type === 'reload') await context.emitSessionStart('reload');
+      if (event.type === 'artifact_updated') seedLiveActivity(context.module, event.artifactId, event.at);
     },
     observe(context) {
       return { ui: emptyUi(), recovery: observeRecovery(context.module, artifacts, context.cwd) };
@@ -86,11 +83,17 @@ function ensureState(context: SutObservationContext, id: string, directory: stri
   const file = statePath(context.cwd);
   const state = readState(file);
   state.states[id] ??= {
-    id, paneId: `pi-ui-lab-${id}`, mux: 'tmux', artifactDir: directory,
-    sessionFile: join(directory, 'session.jsonl'), parentSessionId: 'pi-ui-lab', name: id,
+    id, paneId: process.env.TMUX_PANE ?? `pi-ui-lab-${id}`, mux: 'tmux', artifactDir: directory,
+    sessionFile: join(directory, 'session.jsonl'), parentSessionId: sessionId(context), name: id,
     notifyOnComplete: 'notify',
   };
   writeFileSync(file, JSON.stringify(state, null, 2));
+}
+
+function sessionId(context: SutObservationContext): string {
+  const session = context.session as { sessionManager?: { getSessionId?: () => string } };
+  const id = session.sessionManager?.getSessionId?.() ?? 'pi-ui-lab';
+  return id;
 }
 
 function writeCursor(context: SutObservationContext, key: string, value: unknown, artifacts: Map<string, string>): void {
@@ -145,10 +148,11 @@ function observeRecovery(module: Record<string, unknown>, artifacts: Map<string,
   return { cursors, processedReceipts, artifactEvents };
 }
 
-function callExport(module: Record<string, unknown>, name: string, ...args: unknown[]): void {
-  const fn = module[name];
-  if (typeof fn !== 'function') throw new Error(`External SUT module does not export ${name}`);
-  fn(...args);
+function seedLiveActivity(module: Record<string, unknown>, id: string, timestamp: number): void {
+  const registry = module.interactiveSubagentRegistry;
+  if (!(registry instanceof Map)) return;
+  const state = registry.get(id) as Record<string, unknown> | undefined;
+  if (state) state.lastActivityAt = timestamp;
 }
 
 function appendJsonEvent(directory: string, event: Record<string, unknown>): void {
@@ -173,8 +177,5 @@ function safePath(cwd: string, candidate: string): string {
   const rel = relative(resolve(cwd), target);
   if (isAbsolute(rel) || rel.startsWith('..')) throw new Error(`Artifact path escapes SUT cwd: ${candidate}`);
   return target;
-}
-function isArtifactEvent(event: FixtureEvent): boolean {
-  return event.type === 'artifact_created' || event.type === 'artifact_updated' || event.type === 'waiting' || event.type === 'done' || event.type === 'failed';
 }
 function emptyUi() { return { footer: { status: 'stale' as const, activeAgents: 0 }, widgets: [], notifications: [], toolRenders: [] }; }

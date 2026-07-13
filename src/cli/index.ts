@@ -97,6 +97,7 @@ program
   .description('Open fixture in interactive inspector')
   .option('--at <ms>', 'starting timestamp')
   .option('--checkpoint <name>', 'jump to a named checkpoint')
+  .option('--non-interactive', 'print deterministic output even in a TTY')
   .action(async (fixture: string, opts: Record<string, string>) => {
     try {
       await runInspect(fixture, opts);

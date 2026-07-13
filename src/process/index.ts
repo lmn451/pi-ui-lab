@@ -26,4 +26,5 @@ export {
 export { PtyRunnerError, runPty, spawnPty } from './node-pty-runner.js';
 export type { PtyInputAction, PtyResizeAction, PtyRunOptions, PtyRunResult } from './node-pty-runner.js';
 export { runPiPty } from './pi-pty-runner.js';
-export type { PiPtyRunOptions } from './pi-pty-runner.js';
+export type { ExternalSutPtyOptions, PiPtyRunOptions } from './pi-pty-runner.js';
+export { withVirtualDateNow } from './scoped-virtual-clock.js';

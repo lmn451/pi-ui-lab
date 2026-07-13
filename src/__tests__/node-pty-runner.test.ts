@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { resolve } from 'node:path';
 import { getPtyBackendStatusAsync, runPty } from '../process/index.js';
 
 const shell = process.platform === 'win32' ? 'cmd.exe' : '/bin/sh';
@@ -45,6 +46,18 @@ describe('real node-pty runner', () => {
     const result = await promise;
     expect(result.status).toBe('aborted');
   });
+
+  it('opens standalone inspect in a PTY and exits on q', async () => {
+    if (!(await operational())) return;
+    const root = resolve(import.meta.dirname, '../..');
+    const result = await runPty({
+      executable: process.execPath,
+      args: [resolve(root, 'dist/cli/index.js'), 'inspect', resolve(root, 'src/fixtures/sample.json')],
+      cols: 80, rows: 24, inputs: [{ atMs: 750, data: 'n' }, { atMs: 1_000, data: 'q' }], timeoutMs: 4_000,
+    });
+    expect(result.status).toBe('exited');
+    expect(result.ansi).toContain('Inspector |');
+  }, 6_000);
 });
 
 describe('real Pi extension PTY smoke', () => {
@@ -52,7 +65,23 @@ describe('real Pi extension PTY smoke', () => {
     if (!(await operational())) return;
     const { runPiPty } = await import('../process/pi-pty-runner.js');
     const result = await runPiPty({ fixture: 'fixtures/lifecycle-running.json', cols, rows: 24 });
-    expect(result.output).toContain('ui-lab inspected');
-    expect(result.output).toContain('Frames:');
+    expect(result.output).toContain('Inspector |');
+    expect(result.output).toContain('Viewport:');
+  }, 15_000);
+});
+
+describe('external production extension PTY conformance', () => {
+  const extensionPath = process.env.PI_UI_LAB_SUT_EXTENSION;
+  const modulePath = process.env.PI_UI_LAB_SUT_MODULE;
+  it.skipIf(!extensionPath || !modulePath).each([60, 100])('renders external notification at %d columns', async (cols) => {
+    if (!(await operational())) return;
+    const { runPiPty } = await import('../process/pi-pty-runner.js');
+    const result = await runPiPty({
+      fixture: 'fixtures/lifecycle-running.json', cols, rows: 24,
+      externalSut: { extensionPath: extensionPath!, modulePath: modulePath! },
+    });
+    expect(result.output).toContain('external-notify');
+    expect(result.output).toContain('done (exit ?)');
+    expect(result.output).toContain('completion marker');
   }, 15_000);
 });

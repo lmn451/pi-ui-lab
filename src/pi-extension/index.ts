@@ -12,6 +12,8 @@ import {
 } from '../pi-adapter/ui-lab-command.js';
 import type { ReplayResult } from '../replay/replay-engine.js';
 import type { Viewport } from '../types.js';
+import { FixtureLoader } from '../fixtures/index.js';
+import { InspectorComponent, InspectorSession } from '../inspector/index.js';
 
 export interface PiExtensionOptions {
   commandFactory?: () => UiLabCommandDefinition;
@@ -131,15 +133,50 @@ async function executeUiLabCommand(
   ctx: ExtensionCommandContext,
   commandFactory: () => UiLabCommandDefinition,
 ): Promise<void> {
-  const request = parseUiLabArgs(args);
-  const result = await commandFactory().execute({
-    ...request,
-    fixturePath: resolve(ctx.cwd, request.fixturePath),
-  });
+  const request = resolveRequest(parseUiLabArgs(args), ctx.cwd);
+  if (ctx.mode === 'tui' && request.action !== 'replay') {
+    await openPiInspector(request, ctx);
+    return;
+  }
+  const result = await commandFactory().execute(request);
   const lines = formatResult(result);
   ctx.ui.setWidget('pi-ui-lab', lines);
   ctx.ui.notify(lines[0] ?? 'ui-lab completed', 'info');
 }
+
+function resolveRequest(request: UiLabCommandRequest, cwd: string): UiLabCommandRequest {
+  return { ...request, fixturePath: resolve(cwd, request.fixturePath) };
+}
+
+async function openPiInspector(
+  request: UiLabCommandRequest,
+  ctx: ExtensionCommandContext,
+ ): Promise<void> {
+  const fixture = await new FixtureLoader().load(request.fixturePath);
+  const session = new InspectorSession(fixture, {
+    viewport: request.viewport,
+    theme: request.theme,
+  });
+  try {
+    await initializePiInspector(session, request);
+    await ctx.ui.custom<void>((tui, _theme, _keybindings, done) => new InspectorComponent(session, {
+      tui,
+      onClose: () => done(),
+    }));
+  } finally {
+    session.dispose();
+  }
+}
+
+async function initializePiInspector(
+  session: InspectorSession,
+  request: UiLabCommandRequest,
+ ): Promise<void> {
+  if (request.checkpoint) await session.jumpToCheckpoint(request.checkpoint);
+  else if (request.at !== undefined) await session.jumpToTime(request.at);
+  else session.step();
+}
+
 
 function formatResult(result: UiLabInspection | ReplayResult): string[] {
   if ('frame' in result) {

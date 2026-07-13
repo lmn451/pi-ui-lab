@@ -53,4 +53,11 @@ describe('CLI', () => {
     expect(out).toContain('Fixture:');
     expect(out).toContain('Events:');
   });
+
+  it('inspect supports deterministic --non-interactive output', () => {
+    const fixture = resolve(import.meta.dirname, '../fixtures/sample.json');
+    const out = run(`inspect ${fixture} --non-interactive`);
+    expect(out).toContain('Fixture:');
+    expect(out).toContain('Inspector');
+  });
 });

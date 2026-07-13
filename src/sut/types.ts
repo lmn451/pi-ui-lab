@@ -32,6 +32,10 @@ export interface SutObservationContext {
   readonly session: unknown;
   readonly pi: unknown;
   readonly event?: FixtureEvent;
+  /** Runs a synchronous production boundary with this event's virtual timestamp. */
+  readonly withVirtualClock: <T>(invoke: () => T) => T;
+  /** Emits a lifecycle event through the harness extension runner. */
+  readonly emitSessionStart: (reason?: 'startup' | 'reload' | 'resume') => Promise<void>;
 }
 
 export interface ExternalFixtureAdapter {
@@ -44,6 +48,7 @@ export interface TestSessionLike {
   cwd: string;
   events: { ui: Array<{ method: string; args: unknown[] }> };
   session: unknown;
+  emitSessionStart?: (reason: 'startup' | 'reload' | 'resume') => Promise<void> | void;
   dispose(): void;
 }
 

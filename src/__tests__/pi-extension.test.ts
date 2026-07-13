@@ -11,6 +11,7 @@ import {
   registerUiLabCommand,
 } from '../pi-extension/index.js';
 import type { UiLabInspection } from '../pi-adapter/index.js';
+import { InspectorComponent } from '../inspector/index.js';
 
 function captureRegistration(): {
   pi: ExtensionAPI;
@@ -80,5 +81,23 @@ describe('Pi extension', () => {
     expect(execute).toHaveBeenCalledOnce();
     expect(setWidget).toHaveBeenCalledWith('pi-ui-lab', expect.arrayContaining(['Frames: 0']));
     expect(notify).toHaveBeenCalledWith(expect.stringContaining('inspected'), 'info');
+  });
+
+  it('opens the reusable inspector component through ctx.ui.custom in TUI mode', async () => {
+    const { pi, getCommand } = captureRegistration();
+    const custom = vi.fn((factory: (tui: unknown, theme: unknown, keys: unknown, done: () => void) => InspectorComponent) => {
+      const component = factory({ requestRender: vi.fn() }, {}, {}, vi.fn());
+      expect(component).toBeInstanceOf(InspectorComponent);
+      component.handleInput('q');
+      return Promise.resolve();
+    });
+    registerUiLabCommand(pi);
+    const context = {
+      cwd: resolve(import.meta.dirname, '..'),
+      mode: 'tui',
+      ui: { custom },
+    } as unknown as ExtensionCommandContext;
+    await getCommand()?.handler('fixtures/sample.json', context);
+    expect(custom).toHaveBeenCalledOnce();
   });
 });

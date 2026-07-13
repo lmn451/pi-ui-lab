@@ -55,6 +55,26 @@ export class InspectorSession {
     return frame;
   }
 
+  previous(): ReplayFrame | null {
+    const target = (this.current?.index ?? 0) - 1;
+    if (target < 0) {
+      this.resetEngine();
+      return null;
+    }
+    this.resetEngine();
+    for (let index = 0; index <= target; index += 1) this.step();
+    return this.current;
+  }
+
+  selectFrame(index: number): ReplayFrame | null {
+    if (!Number.isInteger(index) || index < 0) return null;
+    this.resetEngine();
+    for (let current = 0; current <= index; current += 1) {
+      if (!this.step()) return null;
+    }
+    return this.current;
+  }
+
   play(): void {
     this.playing = true;
   }
@@ -90,6 +110,11 @@ export class InspectorSession {
 
   get currentFrame(): ReplayFrame | null {
     return this.current;
+  }
+
+  getCurrentEvents(): FixtureEvent[] {
+    if (!this.current) return [];
+    return this.fixture.timeline.filter((event) => event.at === this.current?.timeMs);
   }
 
   getViewport(): Viewport {
@@ -177,10 +202,7 @@ export class InspectorSession {
   }
 
   render(): string {
-    const events = this.current
-      ? this.fixture.timeline.filter((event) => event.at === this.current!.timeMs)
-      : [];
-    return this.renderer.render(this.current, { events });
+    return this.renderer.render(this.current, { events: this.getCurrentEvents() });
   }
 
   saveText(path: string): void {

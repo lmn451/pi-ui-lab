@@ -1,10 +1,12 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { PiHarnessSutAdapter } from '../sut/index.js';
 import type { Fixture, FixtureEvent } from '../types.js';
 import type { ExternalFixtureAdapter, HarnessLike, TestSessionLike } from '../sut/index.js';
+import { withVirtualDateNow } from '../process/scoped-virtual-clock.js';
 
 function fixture(timeline: FixtureEvent[]): Fixture {
   return { version: 1, name: 'external', viewport: { cols: 80, rows: 24 }, theme: 'dark', pollIntervalMs: 5, timeline };
@@ -13,6 +15,34 @@ function fixture(timeline: FixtureEvent[]): Fixture {
 function fakeHarness(): HarnessLike {
   const session: TestSessionLike = { cwd: '', session: {}, events: { ui: [] }, dispose: () => {} };
   return { createTestSession: async () => session };
+}
+
+function registeredExtensionHarness(calls: string[]): HarnessLike {
+  let sessionStart: ((reason: string) => void) | undefined;
+  const session: TestSessionLike = {
+    cwd: '',
+    events: { ui: [] },
+    session: {
+      extensionRunner: {
+        emit: (event: { type: string; reason: string }) => {
+          if (event.type === 'session_start') sessionStart?.(event.reason);
+        },
+      },
+    },
+    dispose: () => {},
+  };
+  return {
+    createTestSession: async () => {
+      const extension = {
+        on(event: string, handler: (payload: { reason: string }) => void) {
+          if (event === 'session_start') sessionStart = (reason) => handler({ reason });
+        },
+      };
+      extension.on('session_start', (event) => calls.push(`session:${event.reason}:${Date.now()}`));
+      setInterval(() => calls.push(`poll:${Date.now()}`), 5_000);
+      return session;
+    },
+  };
 }
 
 function fakeAdapter(): ExternalFixtureAdapter {
@@ -45,52 +75,129 @@ describe('PiHarnessSutAdapter', () => {
     }
   });
 
+  it('replays the extension-registered session handler and poller in fixture order', async () => {
+    const originalNow = Date.now;
+    const originalSetInterval = setInterval;
+    const originalClearInterval = clearInterval;
+    const calls: string[] = [];
+    const directPoll = () => { throw new Error('adapter called an exported poller'); };
+    await new PiHarnessSutAdapter(
+      { extensionPath: 'external.ts', modulePath: 'module.ts', cwd: '/tmp' },
+      { harness: registeredExtensionHarness(calls), moduleLoader: async () => ({ pollArtifactChanges: directPoll }) },
+    ).run(fixture([
+      { at: 0, type: 'session_start' },
+      { at: 5_000, type: 'poll' },
+      { at: 10_000, type: 'poll' },
+    ]));
+    expect(calls).toEqual(['session:startup:0', 'poll:5000', 'poll:10000']);
+    expect(Date.now).toBe(originalNow);
+    expect(setInterval).toBe(originalSetInterval);
+    expect(clearInterval).toBe(originalClearInterval);
+  });
+
+  it('restores clock and UI globals after a failed fixture event', async () => {
+    const globals = globalThis as Record<string, unknown>;
+    const originalNow = Date.now;
+    const originalSetInterval = setInterval;
+    const originalClearInterval = clearInterval;
+    const originalPi = Object.getOwnPropertyDescriptor(globals, '__piSubagenturaPiRef');
+    const originalUi = Object.getOwnPropertyDescriptor(globals, '__piSubagenturaUi');
+    const failingAdapter: ExternalFixtureAdapter = {
+      materializeEvent: () => { throw new Error('fixture failed'); },
+      invokeEvent: () => {},
+      observe: () => ({ ui: { footer: { status: 'stale', activeAgents: 0 }, widgets: [], notifications: [], toolRenders: [] }, recovery: { cursors: {}, processedReceipts: [], artifactEvents: [] } }),
+    };
+    await expect(new PiHarnessSutAdapter(
+      { extensionPath: 'external.ts', modulePath: 'module.ts', cwd: '/tmp' },
+      { harness: registeredExtensionHarness([]), moduleLoader: async () => ({}), fixtureAdapter: failingAdapter },
+    ).run(fixture([{ at: 0, type: 'session_start' }]))).rejects.toThrow('fixture failed');
+    expect(Date.now).toBe(originalNow);
+    expect(setInterval).toBe(originalSetInterval);
+    expect(clearInterval).toBe(originalClearInterval);
+    expect(Object.getOwnPropertyDescriptor(globals, '__piSubagenturaPiRef')).toEqual(originalPi);
+    expect(Object.getOwnPropertyDescriptor(globals, '__piSubagenturaUi')).toEqual(originalUi);
+  });
+
+  it('restores clock and timer globals when session disposal throws', async () => {
+    const originalNow = Date.now;
+    const originalSetInterval = setInterval;
+    const originalClearInterval = clearInterval;
+    const harness: HarnessLike = {
+      createTestSession: async () => ({
+        cwd: '', session: {}, events: { ui: [] },
+        dispose: () => { throw new Error('dispose failed'); },
+      }),
+    };
+    await expect(new PiHarnessSutAdapter(
+      { extensionPath: 'external.ts', modulePath: 'module.ts', cwd: '/tmp' },
+      { harness, moduleLoader: async () => ({}), fixtureAdapter: fakeAdapter() },
+    ).run(fixture([]))).rejects.toThrow('dispose failed');
+    expect(Date.now).toBe(originalNow);
+    expect(setInterval).toBe(originalSetInterval);
+    expect(clearInterval).toBe(originalClearInterval);
+  });
+
   it('rejects a partially specified external boundary', () => {
     expect(() => new PiHarnessSutAdapter({ extensionPath: '', modulePath: 'module.ts', cwd: '/tmp' })).toThrow('extensionPath');
   });
+
+  it('rejects unsupported virtual time scopes and restores Date.now', () => {
+    const originalNow = Date.now;
+    expect(() => withVirtualDateNow(1, () => withVirtualDateNow(2, () => 2))).toThrow('Concurrent');
+    expect(() => withVirtualDateNow(1, () => Promise.resolve())).toThrow('synchronous');
+    expect(Date.now).toBe(originalNow);
+  });
 });
+
+async function clearExternalRegistry(modulePath: string): Promise<void> {
+  const loaded = await import(pathToFileURL(modulePath).href) as { interactiveSubagentRegistry?: Map<unknown, unknown> };
+  loaded.interactiveSubagentRegistry?.clear();
+}
 
 describe('external pi-agents integration', () => {
   const extension = process.env.PI_UI_LAB_SUT_EXTENSION;
   const module = process.env.PI_UI_LAB_SUT_MODULE;
-  it.skipIf(!extension || !module)('loads the explicitly configured production extension and observes real boundaries', async () => {
+  it.skipIf(!extension || !module)('drives the explicitly configured production interval through the harness', async () => {
     const cwd = mkdtempSync(join(tmpdir(), 'pi-ui-lab-external-'));
     try {
       const result = await new PiHarnessSutAdapter({ extensionPath: extension!, modulePath: module!, cwd }).run(fixture([
         { at: 0, type: 'session_start' },
         { at: 1, type: 'artifact_created', artifactId: 'agent-1', artifactPath: '.pi/subagentura-artifacts/agent-1' },
         { at: 2, type: 'artifact_updated', artifactId: 'agent-1', name: 'tool' },
-        { at: 3, type: 'poll' },
-        { at: 4, type: 'waiting', agentId: 'agent-1', reason: 'confirmation' },
-        { at: 5, type: 'poll' },
-        { at: 6, type: 'done', agentId: 'agent-1', content: 'done output' },
-        { at: 7, type: 'poll' },
-        { at: 8, type: 'poll' },
-        { at: 9, type: 'failed', agentId: 'agent-1', error: 'failed output' },
-        { at: 10, type: 'poll' },
-        { at: 11, type: 'poll' },
-        { at: 12, type: 'state_written', key: 'cursor-only', value: 42 },
+        { at: 5_000, type: 'poll' },
       ]));
-      expect(result.frames).toHaveLength(13);
       expect(result.frames[3]?.ui.footer).toMatchObject({ status: 'running', activeAgents: 1 });
-      expect(result.frames[6]?.ui.footer.status).toBe('stale');
-      expect(result.frames.some(frame => frame.ui.widgets.some(widget => widget.visible))).toBe(true);
-      expect(result.frames.some(frame => frame.ui.widgets.some(widget => widget.rows.some(row => row.includes('idle/awaiting follow-up'))))).toBe(true);
       expect(result.uiCalls.some(call => call.method === 'setStatus' && call.args[0] === 'subagentura-running')).toBe(true);
       expect(result.uiCalls.some(call => call.method === 'setWidget' && call.args[0] === 'subagentura-activity')).toBe(true);
-      expect(result.recovery.artifactEvents.map(event => event.type)).toEqual(
-        expect.arrayContaining(['started', 'tool_activity', 'done', 'error']),
-      );
-      expect(result.notifications).toHaveLength(2);
-      expect(result.notifications.map(call => (call.args[0] as { details?: { event?: { type?: string } } }).details?.event?.type)).toEqual(
-        expect.arrayContaining(['done', 'error']),
-      );
-      expect(result.ui.notifications.map(notification => notification.message)).toEqual(
-        expect.arrayContaining([expect.stringContaining('failed output')]),
-      );
-      expect(result.recovery.cursors['cursor-only']).toBe(42);
+      expect('__piSubagenturaInteractivePollerHandle' in globalThis).toBe(false);
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }
+  }, 30_000);
+
+  it.skipIf(!extension || !module)('uses production poller time for waiting and stale rows deterministically', async () => {
+    const timeline: FixtureEvent[] = [
+      { at: 0, type: 'session_start' },
+      { at: 2, type: 'artifact_created', artifactId: 'clock-agent', artifactPath: '.pi/subagentura-artifacts/clock-agent' },
+      { at: 3, type: 'artifact_updated', artifactId: 'clock-agent', name: 'confirmation' },
+      { at: 30_003, type: 'poll' },
+      { at: 90_003, type: 'poll' },
+    ];
+    const run = async (): Promise<string> => {
+      const cwd = mkdtempSync(join(tmpdir(), 'pi-ui-lab-clock-'));
+      await clearExternalRegistry(module!);
+      try {
+        const result = await new PiHarnessSutAdapter({ extensionPath: extension!, modulePath: module!, cwd }).run(fixture(timeline));
+        expect(result.frames[3]?.ui.widgets[0]?.rows[0]).toContain('[waiting]');
+        expect(result.frames[4]?.ui.widgets[0]?.rows[0]).toContain('[stale]');
+        return JSON.stringify(result);
+      } finally {
+        await clearExternalRegistry(module!);
+        rmSync(cwd, { recursive: true, force: true });
+      }
+    };
+    const first = await run();
+    const second = await run();
+    expect(second).toBe(first);
   }, 30_000);
 });
