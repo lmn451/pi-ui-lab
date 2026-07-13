@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "name": "long-names",
+  "description": "Agent names longer than 20 characters",
+  "viewport": { "cols": 80, "rows": 24 },
+  "theme": "dark",
+  "pollIntervalMs": 1000,
+  "timeline": [
+    { "at": 0, "type": "session_start", "name": "init" },
+    { "at": 100, "type": "subagent_started", "agentId": "agent-1", "agentName": "very-long-agent-name-exceeding-20-chars" },
+    { "at": 200, "type": "subagent_started", "agentId": "agent-2", "agentName": "another-long-agent-name-here" },
+    { "at": 400, "type": "activity", "agentId": "agent-1", "content": "Working with long names" },
+    { "at": 600, "type": "checkpoint", "name": "long-names-tested" }
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "name": "many-rows",
+  "description": "10 or more widget rows visible",
+  "viewport": { "cols": 80, "rows": 30 },
+  "theme": "dark",
+  "pollIntervalMs": 1000,
+  "timeline": [
+    { "at": 0, "type": "session_start", "name": "init" },
+    { "at": 100, "type": "subagent_started", "agentId": "agent-1", "agentName": "row-agent-1" },
+    { "at": 200, "type": "activity", "agentId": "agent-1", "content": "Row 1 of many" },
+    { "at": 300, "type": "activity", "agentId": "agent-1", "content": "Row 2 of many" },
+    { "at": 400, "type": "activity", "agentId": "agent-1", "content": "Row 3 of many" },
+    { "at": 500, "type": "activity", "agentId": "agent-1", "content": "Row 4 of many" },
+    { "at": 600, "type": "activity", "agentId": "agent-1", "content": "Row 5 of many" },
+    { "at": 700, "type": "activity", "agentId": "agent-1", "content": "Row 6 of many" },
+    { "at": 800, "type": "activity", "agentId": "agent-1", "content": "Row 7 of many" },
+    { "at": 900, "type": "activity", "agentId": "agent-1", "content": "Row 8 of many" },
+    { "at": 1000, "type": "activity", "agentId": "agent-1", "content": "Row 9 of many" },
+    { "at": 1100, "type": "activity", "agentId": "agent-1", "content": "Row 10 of many" },
+    { "at": 1200, "type": "activity", "agentId": "agent-1", "content": "Row 11 of many" },
+    { "at": 1500, "type": "checkpoint", "name": "many-rows-visible" }
+  ]
+}

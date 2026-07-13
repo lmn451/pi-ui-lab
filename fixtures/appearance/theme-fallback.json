@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "name": "theme-fallback",
+  "description": "Missing or invalid theme triggers fallback",
+  "viewport": { "cols": 80, "rows": 24 },
+  "theme": "invalid-theme-value",
+  "pollIntervalMs": 1000,
+  "timeline": [
+    { "at": 0, "type": "session_start", "name": "init" },
+    { "at": 100, "type": "theme_changed", "theme": "nonexistent" },
+    { "at": 200, "type": "subagent_started", "agentId": "agent-1", "agentName": "fallback-theme-test" },
+    { "at": 400, "type": "activity", "agentId": "agent-1", "content": "Testing theme fallback" },
+    { "at": 600, "type": "checkpoint", "name": "theme-fallback-applied" }
+  ]
+}

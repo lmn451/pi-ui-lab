@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "name": "completed",
+  "description": "Agent starts, runs, and completes successfully",
+  "viewport": { "cols": 80, "rows": 24 },
+  "theme": "dark",
+  "pollIntervalMs": 1000,
+  "timeline": [
+    { "at": 0, "type": "session_start", "name": "init" },
+    { "at": 100, "type": "subagent_started", "agentId": "agent-1", "agentName": "test-agent" },
+    { "at": 500, "type": "activity", "agentId": "agent-1", "content": "Working on task..." },
+    { "at": 1000, "type": "activity", "agentId": "agent-1", "content": "Processing..." },
+    { "at": 2000, "type": "done", "agentId": "agent-1", "content": "Task completed" },
+    { "at": 2001, "type": "checkpoint", "name": "agent-completed" }
+  ]
+}

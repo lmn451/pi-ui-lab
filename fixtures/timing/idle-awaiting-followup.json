@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "name": "idle-awaiting-followup",
+  "description": "Agent completed, now idle waiting for user follow-up",
+  "viewport": { "cols": 80, "rows": 24 },
+  "theme": "dark",
+  "pollIntervalMs": 1000,
+  "timeline": [
+    { "at": 0, "type": "session_start", "name": "init" },
+    { "at": 100, "type": "subagent_started", "agentId": "agent-1", "agentName": "task-agent" },
+    { "at": 500, "type": "activity", "agentId": "agent-1", "content": "Processing..." },
+    { "at": 1500, "type": "done", "agentId": "agent-1", "content": "Done. Awaiting instructions." },
+    { "at": 1501, "type": "checkpoint", "name": "idle-state" }
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "name": "persisted-cursor",
+  "description": "Cursor state survives a reload event",
+  "viewport": { "cols": 80, "rows": 24 },
+  "theme": "dark",
+  "pollIntervalMs": 1000,
+  "timeline": [
+    { "at": 0, "type": "session_start", "name": "init" },
+    { "at": 100, "type": "subagent_started", "agentId": "agent-1", "agentName": "cursor-agent" },
+    { "at": 500, "type": "activity", "agentId": "agent-1", "content": "First activity" },
+    { "at": 1000, "type": "state_written", "key": "cursor-index", "value": 5 },
+    { "at": 1500, "type": "reload", "preserve": ["cursor-index"] },
+    { "at": 2000, "type": "checkpoint", "name": "cursor-preserved" }
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "name": "dark-theme",
+  "description": "Explicit dark theme applied",
+  "viewport": { "cols": 80, "rows": 24 },
+  "theme": "dark",
+  "pollIntervalMs": 1000,
+  "timeline": [
+    { "at": 0, "type": "session_start", "name": "init" },
+    { "at": 100, "type": "theme_changed", "theme": "dark" },
+    { "at": 200, "type": "subagent_started", "agentId": "agent-1", "agentName": "dark-test" },
+    { "at": 400, "type": "activity", "agentId": "agent-1", "content": "Testing dark theme" },
+    { "at": 600, "type": "checkpoint", "name": "dark-theme-applied" }
+  ]
+}

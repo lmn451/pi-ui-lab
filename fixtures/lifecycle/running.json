@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "name": "lifecycle-running",
+  "description": "Single agent currently running with activity events",
+  "viewport": { "cols": 80, "rows": 24 },
+  "theme": "dark",
+  "pollIntervalMs": 1000,
+  "timeline": [
+    { "at": 0, "type": "session_start", "name": "init" },
+    { "at": 100, "type": "subagent_started", "agentId": "agent-1", "agentName": "worker" },
+    { "at": 300, "type": "activity", "agentId": "agent-1", "content": "Processing task..." },
+    { "at": 700, "type": "activity", "agentId": "agent-1", "content": "Almost done..." },
+    { "at": 1000, "type": "checkpoint", "name": "midpoint" }
+  ]
+}

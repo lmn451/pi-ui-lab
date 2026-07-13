@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "name": "inject-cap-degradation",
+  "description": "Model unavailable, triggers fallback behavior",
+  "viewport": { "cols": 80, "rows": 24 },
+  "theme": "dark",
+  "pollIntervalMs": 1000,
+  "timeline": [
+    { "at": 0, "type": "session_start", "name": "init" },
+    { "at": 100, "type": "subagent_started", "agentId": "agent-1", "agentName": "degrade-agent", "model": "unavailable/model" },
+    { "at": 500, "type": "activity", "agentId": "agent-1", "content": "Model unavailable, falling back..." },
+    { "at": 1000, "type": "failed", "agentId": "agent-1", "error": "InjectCapError: model rate limited" },
+    { "at": 1500, "type": "subagent_started", "agentId": "agent-2", "agentName": "fallback-agent", "model": "fallback/model" },
+    { "at": 2000, "type": "activity", "agentId": "agent-2", "content": "Fallback agent started" },
+    { "at": 2500, "type": "checkpoint", "name": "fallback-activated" }
+  ]
+}

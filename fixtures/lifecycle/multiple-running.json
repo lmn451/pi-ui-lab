@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "name": "multiple-running",
+  "description": "Three agents running simultaneously",
+  "viewport": { "cols": 80, "rows": 24 },
+  "theme": "dark",
+  "pollIntervalMs": 1000,
+  "timeline": [
+    { "at": 0, "type": "session_start", "name": "multi-init" },
+    { "at": 100, "type": "subagent_started", "agentId": "agent-1", "agentName": "worker-a" },
+    { "at": 200, "type": "subagent_started", "agentId": "agent-2", "agentName": "worker-b" },
+    { "at": 300, "type": "subagent_started", "agentId": "agent-3", "agentName": "worker-c" },
+    { "at": 500, "type": "activity", "agentId": "agent-1", "content": "A working..." },
+    { "at": 600, "type": "activity", "agentId": "agent-2", "content": "B working..." },
+    { "at": 700, "type": "activity", "agentId": "agent-3", "content": "C working..." },
+    { "at": 1000, "type": "checkpoint", "name": "all-three-active" }
+  ]
+}

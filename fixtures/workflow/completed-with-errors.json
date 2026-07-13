@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "name": "completed-with-errors",
+  "description": "Workflow finishes but includes error notifications",
+  "viewport": { "cols": 80, "rows": 24 },
+  "theme": "dark",
+  "pollIntervalMs": 1000,
+  "timeline": [
+    { "at": 0, "type": "session_start", "name": "init" },
+    { "at": 100, "type": "subagent_started", "agentId": "agent-1", "agentName": "workflow-agent" },
+    { "at": 300, "type": "workflow_updated", "workflowId": "wf-1", "status": "running" },
+    { "at": 500, "type": "activity", "agentId": "agent-1", "content": "Step 1 complete" },
+    { "at": 1000, "type": "failed", "agentId": "agent-1", "error": "Timeout on step 2" },
+    { "at": 1500, "type": "workflow_updated", "workflowId": "wf-1", "status": "completed" },
+    { "at": 1501, "type": "checkpoint", "name": "workflow-done-with-errors" }
+  ]
+}

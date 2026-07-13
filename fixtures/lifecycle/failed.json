@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "name": "failed",
+  "description": "Agent starts, runs, and fails with an error",
+  "viewport": { "cols": 80, "rows": 24 },
+  "theme": "dark",
+  "pollIntervalMs": 1000,
+  "timeline": [
+    { "at": 0, "type": "session_start", "name": "init" },
+    { "at": 100, "type": "subagent_started", "agentId": "agent-1", "agentName": "test-agent" },
+    { "at": 500, "type": "activity", "agentId": "agent-1", "content": "Working on task..." },
+    { "at": 1000, "type": "activity", "agentId": "agent-1", "content": "Encountered problem..." },
+    { "at": 2000, "type": "failed", "agentId": "agent-1", "error": "RuntimeError: module not found" },
+    { "at": 2001, "type": "checkpoint", "name": "agent-failed" }
+  ]
+}

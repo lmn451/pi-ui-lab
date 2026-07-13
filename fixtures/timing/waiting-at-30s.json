@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "name": "waiting-at-30s",
+  "description": "Agent in waiting state for 30 seconds",
+  "viewport": { "cols": 80, "rows": 24 },
+  "theme": "dark",
+  "pollIntervalMs": 1000,
+  "timeline": [
+    { "at": 0, "type": "session_start", "name": "init" },
+    { "at": 100, "type": "subagent_started", "agentId": "agent-1", "agentName": "waiter" },
+    { "at": 500, "type": "activity", "agentId": "agent-1", "content": "Working..." },
+    { "at": 1000, "type": "waiting", "agentId": "agent-1", "reason": "Waiting for user confirmation" },
+    { "at": 30000, "type": "checkpoint", "name": "still-waiting" }
+  ]
+}

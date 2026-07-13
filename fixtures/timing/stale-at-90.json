@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "name": "stale-at-90",
+  "description": "Agent becomes stale after 90 seconds without activity",
+  "viewport": { "cols": 80, "rows": 24 },
+  "theme": "dark",
+  "pollIntervalMs": 1000,
+  "timeline": [
+    { "at": 0, "type": "session_start", "name": "init" },
+    { "at": 100, "type": "subagent_started", "agentId": "agent-1", "agentName": "slow-agent" },
+    { "at": 500, "type": "activity", "agentId": "agent-1", "content": "Starting work..." },
+    { "at": 90000, "type": "checkpoint", "name": "stale-detected" }
+  ]
+}

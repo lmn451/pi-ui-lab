@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "name": "sample",
+  "viewport": { "cols": 80, "rows": 24 },
+  "theme": "default",
+  "pollIntervalMs": 1000,
+  "timeline": [
+    { "at": 0, "type": "session_start", "name": "init" },
+    { "at": 100, "type": "subagent_started", "agentId": "a1", "agentName": "worker" },
+    { "at": 300, "type": "activity", "agentId": "a1", "content": "thinking..." },
+    { "at": 600, "type": "done", "agentId": "a1", "content": "complete" }
+  ]
+}

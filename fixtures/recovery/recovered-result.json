@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "name": "recovered-result",
+  "description": "Reload event followed by recovery of persisted state",
+  "viewport": { "cols": 80, "rows": 24 },
+  "theme": "dark",
+  "pollIntervalMs": 1000,
+  "timeline": [
+    { "at": 0, "type": "session_start", "name": "init" },
+    { "at": 100, "type": "subagent_started", "agentId": "agent-1", "agentName": "persistent-agent" },
+    { "at": 500, "type": "activity", "agentId": "agent-1", "content": "Saving state..." },
+    { "at": 1000, "type": "state_written", "key": "cursor-pos", "value": 42 },
+    { "at": 1500, "type": "reload", "preserve": ["cursor-pos", "processedReceipts"] },
+    { "at": 2000, "type": "activity", "agentId": "agent-1", "content": "Resuming after reload..." },
+    { "at": 2500, "type": "checkpoint", "name": "recovery-complete" }
+  ]
+}
