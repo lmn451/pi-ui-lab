@@ -311,6 +311,8 @@ export interface ReplayFrame {
 // Snapshot types
 // ---------------------------------------------------------------------------
 
+export type ExecutionMode = 'model' | 'sut' | 'pty';
+
 export interface TextSnapshot {
   frames: Array<{
     index: number;
@@ -337,4 +339,5 @@ export interface SnapshotMetadata {
   timestamp: string;
   viewport: Viewport;
   theme: string;
+  executionMode: ExecutionMode;
 }

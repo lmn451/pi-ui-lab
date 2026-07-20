@@ -2,11 +2,7 @@
 // DeterministicScheduler — combines fixture events with virtual clock timers
 // =============================================================================
 
-import type {
-  FixtureEvent,
-  FrameCause,
-  TimerHandle,
-} from '../types.js';
+import type { FixtureEvent, FrameCause } from '../types.js';
 import type { VirtualClock } from '../clock/virtual-clock.js';
 
 export interface SchedulerOptions {
@@ -26,7 +22,6 @@ type ScheduledEntry = {
 type TimerEntry = {
   type: 'timer';
   timeMs: number;
-  handle: TimerHandle;
 };
 
 type PollEntry = {
@@ -39,7 +34,6 @@ type QueueEntry = ScheduledEntry | TimerEntry | PollEntry;
 export class DeterministicScheduler {
   private clock: VirtualClock;
   private fixtureQueue: ScheduledEntry[];
-  private timerEntries: TimerEntry[] = [];
   private pollIntervalMs: number;
   private nextPollTime: number;
   private onEvent: SchedulerOptions['onEvent'];
@@ -62,16 +56,19 @@ export class DeterministicScheduler {
   advance(): FrameCause | null {
     const nextTime = this.findNextTime();
     if (nextTime === null) return null;
-
+    const timerDue = this.clock.getPendingTimers().some((timer) => timer.fireAt <= nextTime);
     this.clock.advanceTo(nextTime);
-
-    const entries = this.collectDueEntries();
+    const entries = this.collectDueEntries(timerDue);
     if (entries.length === 0) return null;
-
     const cause = this.classifyCause(entries);
     this.processEntries(entries);
     this.frameCount++;
     return cause;
+  }
+
+  /** Timestamp of the next action without consuming it. */
+  peekNextTime(): number | null {
+    return this.findNextTime();
   }
 
   /** Run all remaining events and timers. */
@@ -100,10 +97,9 @@ export class DeterministicScheduler {
       candidates.push(this.fixtureQueue[this.currentIndex].event.at);
     }
 
-    // Next timer
-    if (this.timerEntries.length > 0) {
-      candidates.push(this.timerEntries[0].timeMs);
-    }
+    // Next virtual-clock timer
+    const nextTimer = this.clock.getPendingTimers()[0];
+    if (nextTimer) candidates.push(nextTimer.fireAt);
 
     // Only poll if there are still pending events
     if (this.hasMoreEvents()) {
@@ -116,7 +112,7 @@ export class DeterministicScheduler {
   }
 
   /** Collect all entries due at the current clock time. */
-  private collectDueEntries(): QueueEntry[] {
+  private collectDueEntries(timerDue: boolean): QueueEntry[] {
     const time = this.clock.now();
     const entries: QueueEntry[] = [];
 
@@ -129,12 +125,8 @@ export class DeterministicScheduler {
       this.currentIndex++;
     }
 
-    // 2. Scheduled timers
-    const dueTimers = this.timerEntries.filter((t) => t.timeMs <= time);
-    if (dueTimers.length > 0) {
-      this.timerEntries = this.timerEntries.filter((t) => t.timeMs > time);
-      entries.push(...dueTimers);
-    }
+    // 2. Virtual-clock timers execute inside clock.advanceTo().
+    if (timerDue) entries.push({ type: 'timer', timeMs: time });
 
     // 3. Poll ticks — only if more events remain
     if (this.hasMoreEvents() && time >= this.nextPollTime) {
@@ -151,7 +143,6 @@ export class DeterministicScheduler {
       if (entry.type === 'fixture') {
         this.onEvent(entry.event, time);
       } else if (entry.type === 'timer') {
-        this.clock.clearTimeout(entry.handle);
         this.onEvent('timer', time);
       } else {
         this.onEvent('poll', time);
@@ -171,7 +162,7 @@ export class DeterministicScheduler {
   private hasMoreEvents(): boolean {
     return (
       this.currentIndex < this.fixtureQueue.length ||
-      this.timerEntries.length > 0
+      this.clock.getPendingTimers().length > 0
     );
   }
 }

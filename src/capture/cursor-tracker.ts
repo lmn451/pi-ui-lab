@@ -4,7 +4,7 @@
 
 import type { CursorState, Viewport } from '../types.js';
 import { assertViewport } from './cell-grid.js';
-import { charWidth } from './ansi-parser.js';
+import { readPrintableCluster } from './ansi-parser.js';
 
 function params(raw: string): number[] {
   const value = raw.replace(/^[?>!]/, '');
@@ -27,9 +27,21 @@ export function trackCursor(ansi: string, initial: CursorState, viewport: Viewpo
   let savedCol = col;
   let visible = initial.visible;
   let index = 0;
+  let wrapPending = false;
   const advance = (width: number): void => {
-    col += width;
-    if (col >= viewport.cols) { col = 0; row = Math.min(viewport.rows - 1, row + 1); }
+    if (width === 0) return;
+    if (wrapPending || (width === 2 && col === viewport.cols - 1)) {
+      row = Math.min(viewport.rows - 1, row + 1);
+      col = 0;
+      wrapPending = false;
+    }
+    const nextCol = col + width;
+    if (nextCol >= viewport.cols) {
+      col = viewport.cols - 1;
+      wrapPending = true;
+    } else {
+      col = nextCol;
+    }
   };
   while (index < ansi.length) {
     const char = ansi[index];
@@ -43,6 +55,7 @@ export function trackCursor(ansi: string, initial: CursorState, viewport: Viewpo
         const final = ansi[end];
         const values = params(raw);
         const n = values[0] || 1;
+        if (final !== 'm') wrapPending = false;
         if (final === 'A') row = Math.max(0, row - n);
         else if (final === 'B') row = Math.min(viewport.rows - 1, row + n);
         else if (final === 'C' || final === 'a') col = Math.min(viewport.cols - 1, col + n);
@@ -64,15 +77,15 @@ export function trackCursor(ansi: string, initial: CursorState, viewport: Viewpo
       } else if (next === '7') { savedRow = row; savedCol = col; index += 2;
       } else if (next === '8') { row = savedRow; col = savedCol; index += 2;
       } else index += Math.min(2, ansi.length - index);
-    } else if (char === '\r') { col = 0; index++;
-    } else if (char === '\n') { row = Math.min(viewport.rows - 1, row + 1); col = 0; index++;
-    } else if (char === '\t') { col = Math.min(viewport.cols - 1, (Math.floor(col / 8) + 1) * 8); index++;
-    } else if (char === '\b') { col = Math.max(0, col - 1); index++;
+    } else if (char === '\r') { col = 0; wrapPending = false; index++;
+    } else if (char === '\n') { row = Math.min(viewport.rows - 1, row + 1); col = 0; wrapPending = false; index++;
+    } else if (char === '\t') { col = Math.min(viewport.cols - 1, (Math.floor(col / 8) + 1) * 8); wrapPending = false; index++;
+    } else if (char === '\b') { col = Math.max(0, col - 1); wrapPending = false; index++;
     } else if (char.charCodeAt(0) < 0x20 || char.charCodeAt(0) === 0x7f) index++;
     else {
-      const codePoint = ansi.codePointAt(index) ?? 0;
-      advance(charWidth(String.fromCodePoint(codePoint)));
-      index += String.fromCodePoint(codePoint).length;
+      const printable = readPrintableCluster(ansi, index);
+      advance(printable.width);
+      index += printable.text.length;
     }
   }
   return { row, col, visible };

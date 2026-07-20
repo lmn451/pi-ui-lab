@@ -42,6 +42,7 @@ describe('SnapshotStore', () => {
           timestamp: '2024-01-01T00:00:00.000Z',
           viewport: { cols: 80, rows: 24 },
           theme: 'dark',
+          executionMode: 'model',
         },
       };
 
@@ -66,6 +67,7 @@ describe('SnapshotStore', () => {
           timestamp: '2024-01-01T00:00:00.000Z',
           viewport: { cols: 80, rows: 24 },
           theme: 'dark',
+          executionMode: 'model',
         },
       };
 
@@ -100,6 +102,7 @@ describe('SnapshotStore', () => {
           timestamp: '',
           viewport: { cols: 80, rows: 24 },
           theme: 'dark',
+          executionMode: 'model',
         },
       };
 

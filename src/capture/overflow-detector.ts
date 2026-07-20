@@ -10,9 +10,6 @@ export interface CollisionReport {
   wideCharClips: number;
 }
 
-function isVisible(cell: { char: string; width: number }): boolean {
-  return cell.width > 0 && cell.char !== ' ';
-}
 
 /** Find malformed wide-character continuation cells and overlapping cells. */
 export function detectCollisions(grid: CellGrid, viewport: Viewport): CollisionReport {
@@ -46,24 +43,14 @@ export function detectOverflow(grid: CellGrid, viewport: Viewport): OverflowRepo
     }
   }
   const collisions = detectCollisions(grid, viewport);
-  let unexpectedWrap = false;
-  for (let row = 0; row + 1 < Math.min(grid.length, viewport.rows); row++) {
-    const current = grid[row] ?? [];
-    const next = grid[row + 1] ?? [];
-    const last = [...current].reverse().find((cell) => isVisible(cell));
-    const first = next.find((cell) => isVisible(cell));
-    const currentFilled = current.slice(0, viewport.cols).filter(isVisible).length;
-    if (last && first && /[A-Za-z]/u.test(last.char.slice(-1)) &&
-        /[a-z]/u.test(first.char[0] ?? '') && currentFilled >= viewport.cols - 2) {
-      unexpectedWrap = true;
-    }
-  }
+  // A fixed cell grid does not retain whether adjacent rows came from explicit
+  // newlines or autowrap. captureTerminal fills this from parser state.
   return {
     horizontal: rowOverflows.length > 0,
     vertical: grid.length > viewport.rows,
     clippedCells,
     scrollbackLines: Math.max(0, grid.length - viewport.rows),
-    unexpectedWrap,
+    unexpectedWrap: false,
     collisions: collisions.collisions,
     collision: collisions.collision,
     rowOverflows,

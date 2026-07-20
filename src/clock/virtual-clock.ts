@@ -25,6 +25,7 @@ const TIMER_LOOP_THRESHOLD = 100;
 
 export class VirtualClock implements Clock {
   private currentTime: number;
+  private startTime: number;
   private maxSteps: number;
   private maxDuration: number;
   private nextId = 1;
@@ -34,6 +35,7 @@ export class VirtualClock implements Clock {
 
   constructor(opts: VirtualClockOptions = {}) {
     this.currentTime = opts.startTime ?? 0;
+    this.startTime = this.currentTime;
     this.maxSteps = opts.maxSteps ?? DEFAULT_MAX_STEPS;
     this.maxDuration = opts.maxDuration ?? DEFAULT_MAX_DURATION;
   }
@@ -45,8 +47,9 @@ export class VirtualClock implements Clock {
   }
 
   setTimeout(callback: () => void, delayMs: number): TimerHandle {
+    if (!Number.isFinite(delayMs)) throw new RangeError('Timer delay must be finite');
     const id = this.nextId++;
-    const fireAt = this.currentTime + delayMs;
+    const fireAt = this.currentTime + Math.max(0, delayMs);
     this.timers.push({ id, fireAt, callback });
     this.timers.sort((a, b) => a.fireAt - b.fireAt || a.id - b.id);
     return { id };
@@ -105,6 +108,7 @@ export class VirtualClock implements Clock {
   /** Reset all state (useful between tests). */
   reset(startTime?: number): void {
     this.currentTime = startTime ?? 0;
+    this.startTime = this.currentTime;
     this.timers = [];
     this.timestampExecutions.clear();
     this.totalSteps = 0;
@@ -123,7 +127,7 @@ export class VirtualClock implements Clock {
   }
 
   private checkMaxDuration(timeMs: number): void {
-    if (timeMs - this.currentTime > this.maxDuration) {
+    if (timeMs - this.startTime > this.maxDuration) {
       throw new Error(
         `VirtualClock exceeded max duration (${this.maxDuration}ms).`,
       );

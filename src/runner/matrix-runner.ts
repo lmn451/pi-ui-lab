@@ -1,10 +1,10 @@
 // Matrix runner - deterministic fixture × width × theme execution
-import { basename, resolve } from 'node:path';
+import { basename, relative, resolve, sep } from 'node:path';
 import { glob } from 'node:fs/promises';
-import type { CellGrid, CellSnapshot, Fixture, SnapshotMetadata, TextSnapshot } from '../types.js';
+import type { CellGrid, CellSnapshot, ExecutionMode, Fixture, SnapshotMetadata, TextSnapshot } from '../types.js';
 import { FixtureLoader } from '../fixtures/index.js';
 import { ReplayEngine } from '../replay/replay-engine.js';
-import { hashFixture, produceCellSnapshot, produceTextSnapshot } from '../replay/snapshot-producer.js';
+import { hashFixture, produceTextSnapshot } from '../replay/snapshot-producer.js';
 import { FileSnapshotStore, type SnapshotStore } from './snapshot-store.js';
 import { diffCellSnapshots, diffTextSnapshots, type SnapshotDiff } from './snapshot-differ.js';
 import { createFailureBundle, saveFailureBundle } from './failure-artifacts.js';
@@ -16,7 +16,9 @@ export interface MatrixConfig {
   widths?: number[];
   themes?: string[];
   fixtures: string[];
-  backend: 'in-process' | 'pty';
+  mode?: ExecutionMode;
+  /** Backward-compatible transport selection. Prefer mode. */
+  backend?: 'in-process' | 'pty';
   update?: boolean;
   snapshotStore?: SnapshotStore;
   snapshotDir?: string;
@@ -28,6 +30,7 @@ export interface MatrixConfig {
 }
 
 export interface MatrixResultItem {
+  mode: ExecutionMode;
   fixture: string;
   width: number;
   theme: string;
@@ -90,7 +93,9 @@ async function resolveFixtures(patterns: string[]): Promise<string[]> {
   return [...new Set(paths)].sort();
 }
 
-function createMetadata(fixture: Fixture, width: number, theme: string): SnapshotMetadata {
+function createMetadata(
+  fixture: Fixture, width: number, theme: string, executionMode: ExecutionMode,
+): SnapshotMetadata {
   return {
     fixtureName: fixture.name,
     fixtureHash: hashFixture(JSON.stringify(fixture)),
@@ -99,27 +104,24 @@ function createMetadata(fixture: Fixture, width: number, theme: string): Snapsho
     timestamp: '1970-01-01T00:00:00.000Z',
     viewport: { cols: width, rows: fixture.viewport.rows },
     theme,
+    executionMode,
   };
 }
 
-interface ReplaySnapshots { text: TextSnapshot; cells: CellSnapshot }
+interface ReplaySnapshots { text: TextSnapshot; cells?: CellSnapshot }
 
 async function replayFixture(
-  fixture: Fixture,
-  width: number,
-  theme: string,
+  fixture: Fixture, width: number, theme: string, mode: Exclude<ExecutionMode, 'pty'>,
   sut?: ExternalSutConfig,
- ): Promise<ReplaySnapshots> {
-  if (sut) {
+): Promise<ReplaySnapshots> {
+  if (mode === 'sut') {
+    if (!sut) throw new Error('sut mode requires an external SUT configuration');
     const replay = await new PiHarnessSutAdapter(sut, {
       viewport: { cols: width, rows: fixture.viewport.rows },
       theme,
     }).run(fixture);
-    const metadata = createMetadata(fixture, width, theme);
-    return {
-      text: produceTextSnapshot(replay.frames, metadata),
-      cells: produceCellSnapshot(replay.frames, metadata),
-    };
+    const metadata = createMetadata(fixture, width, theme, mode);
+    return { text: produceTextSnapshot(replay.frames, metadata) };
   }
   const engine = new ReplayEngine(fixture, {
     viewport: { cols: width, rows: fixture.viewport.rows },
@@ -127,21 +129,24 @@ async function replayFixture(
   });
   try {
     const replay = await engine.run();
-    const metadata = createMetadata(fixture, width, theme);
-    return {
-      text: produceTextSnapshot(replay.frames, metadata),
-      cells: produceCellSnapshot(replay.frames, metadata),
-    };
+    const metadata = createMetadata(fixture, width, theme, mode);
+    return { text: produceTextSnapshot(replay.frames, metadata) };
   } finally {
     engine.dispose();
   }
 }
 
 async function replayFixturePty(
-  fixturePath: string, fixture: Fixture, width: number, theme: string,
- ): Promise<ReplaySnapshots> {
-  const result = await runPiPty({ fixture: fixturePath, cols: width, rows: fixture.viewport.rows, theme });
-  const metadata = createMetadata(fixture, width, theme);
+  fixturePath: string, fixture: Fixture, width: number, theme: string, sut: ExternalSutConfig | undefined,
+): Promise<ReplaySnapshots> {
+  if (!sut) throw new Error('pty mode requires an external SUT configuration');
+  const result = await runPiPty({
+    fixture: fixturePath, cols: width, rows: fixture.viewport.rows, theme,
+    cwd: process.cwd(), sutCwd: sut.cwd,
+    externalSut: { extensionPath: sut.extensionPath, modulePath: sut.modulePath },
+  });
+  if (result.terminal.cells.length === 0) throw new Error('PTY mode produced no terminal cells');
+  const metadata = createMetadata(fixture, width, theme, 'pty');
   return {
     text: { frames: [{ index: 0, timeMs: 0, text: result.output }], metadata },
     cells: { frames: [{ index: 0, timeMs: 0, cells: result.terminal.cells }], metadata },
@@ -154,62 +159,62 @@ function summarizeDiffs(diffs: SnapshotDiff[]): string {
 }
 
 async function runSingleCombination(
-  fixturePath: string,
-  width: number,
-  theme: string,
-  config: MatrixConfig,
- ): Promise<MatrixResultItem> {
+  fixturePath: string, width: number, theme: string, config: MatrixConfig,
+): Promise<MatrixResultItem> {
   const started = Date.now();
   const fixtureName = basename(fixturePath, '.json');
+  const mode = effectiveMode(config);
+  const snapshotName = snapshotKey(mode, fixturePath);
   try {
     const fixture = await new FixtureLoader().load(fixturePath);
-    const actual = config.backend === 'pty'
-      ? await replayFixturePty(fixturePath, fixture, width, theme)
-      : await replayFixture(fixture, width, theme, config.sut);
+    const actual = mode === 'pty'
+      ? await replayFixturePty(fixturePath, fixture, width, theme, config.sut)
+      : await replayFixture(fixture, width, theme, mode, config.sut);
     const store = config.snapshotStore;
-    if (!store) return resultItem(fixtureName, width, theme, 'pass', started);
+    if (!store) return resultItem(mode, fixtureName, width, theme, 'pass', started);
     if (config.update) {
-      store.saveTextSnapshot(fixtureName, width, theme, actual.text);
-      store.saveCellSnapshot(fixtureName, width, theme, actual.cells);
-      return resultItem(fixtureName, width, theme, 'pass', started);
+      store.saveTextSnapshot(snapshotName, width, theme, actual.text);
+      if (actual.cells) store.saveCellSnapshot(snapshotName, width, theme, actual.cells);
+      return resultItem(mode, fixtureName, width, theme, 'pass', started);
     }
-    return compareSnapshots(fixtureName, width, theme, actual, store, config, started);
+    return compareSnapshots(mode, snapshotName, fixtureName, width, theme, actual, store, config, started);
   } catch (error) {
     return {
-      fixture: fixtureName, width, theme, status: 'fail', duration: Date.now() - started,
+      mode, fixture: fixtureName, width, theme, status: 'fail', duration: Date.now() - started,
       error: error instanceof Error ? error.message : String(error),
     };
   }
 }
 
 function resultItem(
-  fixture: string, width: number, theme: string, status: MatrixResultItem['status'], started: number,
-  error?: string,
- ): MatrixResultItem {
-  return { fixture, width, theme, status, duration: Date.now() - started, error };
+  mode: ExecutionMode, fixture: string, width: number, theme: string,
+  status: MatrixResultItem['status'], started: number, error?: string,
+): MatrixResultItem {
+  return { mode, fixture, width, theme, status, duration: Date.now() - started, error };
 }
 
 function compareSnapshots(
-  fixture: string, width: number, theme: string, actual: ReplaySnapshots,
-  store: SnapshotStore, config: MatrixConfig, started: number,
- ): MatrixResultItem {
-  const expectedText = store.loadTextSnapshot(fixture, width, theme);
-  const expectedCells = store.loadCellSnapshot(fixture, width, theme);
-  if (!expectedText && !expectedCells) {
-    return resultItem(fixture, width, theme, 'skip', started, 'No snapshot found. Run with --update to create.');
+  mode: ExecutionMode, snapshotName: string, fixture: string, width: number, theme: string,
+  actual: ReplaySnapshots, store: SnapshotStore, config: MatrixConfig, started: number,
+): MatrixResultItem {
+  const expectedText = store.loadTextSnapshot(snapshotName, width, theme);
+  const expectedCells = store.loadCellSnapshot(snapshotName, width, theme);
+  if (!expectedText) {
+    return resultItem(mode, fixture, width, theme, 'fail', started, 'Required text snapshot is missing. Run with --update to create it.');
+  }
+  if (mode === 'pty' && (!expectedCells || !actual.cells)) {
+    return resultItem(mode, fixture, width, theme, 'fail', started, 'PTY mode requires a cell snapshot. Run with --update to create it.');
   }
   const diffs: SnapshotDiff[] = [];
-  if (expectedText) {
-    const diff = diffTextSnapshots(expectedText, actual.text, fixture, width, theme);
-    if (!diff.match) diffs.push(diff);
+  const textDiff = diffTextSnapshots(expectedText, actual.text, fixture, width, theme);
+  if (!textDiff.match) diffs.push(textDiff);
+  if (expectedCells && actual.cells) {
+    const cellDiff = diffCellSnapshots(expectedCells, actual.cells, fixture, width, theme);
+    if (!cellDiff.match) diffs.push(cellDiff);
   }
-  if (expectedCells) {
-    const diff = diffCellSnapshots(expectedCells, actual.cells, fixture, width, theme);
-    if (!diff.match) diffs.push(diff);
-  }
-  if (diffs.length === 0) return resultItem(fixture, width, theme, 'pass', started);
+  if (diffs.length === 0) return resultItem(mode, fixture, width, theme, 'pass', started);
   const artifacts = saveDiffArtifacts(diffs, expectedText, expectedCells, actual, config);
-  return { ...resultItem(fixture, width, theme, 'fail', started, summarizeDiffs(diffs)), artifacts };
+  return { ...resultItem(mode, fixture, width, theme, 'fail', started, summarizeDiffs(diffs)), artifacts };
 }
 
 function saveDiffArtifacts(
@@ -224,7 +229,7 @@ function saveDiffArtifacts(
       expectedText: expectedText?.frames.map((frame) => frame.text).join('\n'),
       actualText: actual.text.frames.map((frame) => frame.text).join('\n'),
       expectedCell: expectedCells ? JSON.stringify(expectedCells.frames) : undefined,
-      actualCell: JSON.stringify(actual.cells.frames),
+      actualCell: actual.cells ? JSON.stringify(actual.cells.frames) : undefined,
       expectedGrid: grids?.expectedGrid,
       actualGrid: grids?.actualGrid,
     });
@@ -235,9 +240,9 @@ function saveDiffArtifacts(
 
 /** Select the first differing cell frame; metadata-only diffs use frame zero. */
 function representativeCellGrids(
-  diff: SnapshotDiff, expected: CellSnapshot | null, actual: CellSnapshot,
- ): { expectedGrid: CellGrid; actualGrid: CellGrid } | undefined {
-  if (!diff.differences.some((difference) => difference.type === 'cell') || !expected) return undefined;
+  diff: SnapshotDiff, expected: CellSnapshot | null, actual: CellSnapshot | undefined,
+): { expectedGrid: CellGrid; actualGrid: CellGrid } | undefined {
+  if (!diff.differences.some((difference) => difference.type === 'cell') || !expected || !actual) return undefined;
   const frameIndex = diff.differences.find((difference) => difference.frameIndex >= 0)?.frameIndex ?? 0;
   return {
     expectedGrid: expected.frames[frameIndex]?.cells ?? [],
@@ -246,7 +251,25 @@ function representativeCellGrids(
 }
 
 
+function effectiveMode(config: MatrixConfig): ExecutionMode {
+  const inferred = config.backend === 'pty' ? 'pty' : config.sut ? 'sut' : 'model';
+  const mode = config.mode ?? inferred;
+  if (config.backend && config.backend !== (mode === 'pty' ? 'pty' : 'in-process')) {
+    throw new Error(`backend ${config.backend} conflicts with mode ${mode}`);
+  }
+  if ((mode === 'sut' || mode === 'pty') && !config.sut) {
+    throw new Error(`${mode} mode requires an external SUT configuration`);
+  }
+  return mode;
+}
+
+function snapshotKey(mode: ExecutionMode, fixturePath: string): string {
+  const portablePath = relative(process.cwd(), fixturePath).split(sep).join('/').replace(/\.json$/u, '');
+  return `${mode}/${portablePath}`;
+}
+
 export async function runMatrix(config: MatrixConfig): Promise<MatrixResult> {
+  effectiveMode(config);
   const snapshotStore = config.update || config.snapshotDir
     ? (config.snapshotStore ?? new FileSnapshotStore(config.snapshotDir))
     : config.snapshotStore;

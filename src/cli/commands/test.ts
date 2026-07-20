@@ -1,9 +1,11 @@
 import { runTests, reportPretty, reportJson, reportJunit } from '../../runner/index.js';
 import type { TestRunnerOptions } from '../../runner/test-runner.js';
+import type { ExecutionMode } from '../../types.js';
 
 export interface TestOptions {
   update?: boolean;
   matrix?: boolean;
+  mode?: ExecutionMode;
   backend?: 'in-process' | 'pty';
   reporter?: 'pretty' | 'json' | 'junit';
   widths?: string;
@@ -45,6 +47,19 @@ function parseOptionalInteger(value: string | undefined, name: string): number |
   return parsed;
 }
 
+function parseChoice<T extends string>(value: string | undefined, choices: readonly T[], name: string): T | undefined {
+  if (value === undefined) return undefined;
+  if (!choices.includes(value as T)) throw new Error(`Invalid ${name}: ${value}`);
+  return value as T;
+}
+
+function resolveMode(opts: TestOptions): ExecutionMode {
+  const mode = parseChoice(opts.mode, ['model', 'sut', 'pty'] as const, 'mode');
+  if (mode) return mode;
+  if (opts.backend === 'pty') return 'pty';
+  return opts.sutExtension ? 'sut' : 'model';
+}
+
 export async function runTest(patterns: string[], opts: TestOptions): Promise<void> {
   try {
     const shard = parseShard(opts.shard);
@@ -56,11 +71,15 @@ export async function runTest(patterns: string[], opts: TestOptions): Promise<vo
     if (Boolean(opts.sutExtension) !== Boolean(opts.sutModule)) {
       throw new Error('--sut-extension and --sut-module must be supplied together');
     }
+    const mode = resolveMode(opts);
+    const backend = parseChoice(opts.backend, ['in-process', 'pty'] as const, 'backend');
+    const reporter = parseChoice(opts.reporter, ['pretty', 'json', 'junit'] as const, 'reporter') ?? 'pretty';
+    const themes = (opts.themes ?? opts.theme)?.split(',').map((theme) => theme.trim());
+    if (themes?.some((theme) => !theme)) throw new Error('Theme names must not be empty');
     const options: TestRunnerOptions = {
       patterns, update: opts.update ?? false, matrix: opts.matrix ?? false,
-      backend: opts.backend ?? 'in-process', reporter: opts.reporter ?? 'pretty',
-      widths: parseNumbers(opts.widths ?? opts.width),
-      themes: (opts.themes ?? opts.theme)?.split(',').map((theme) => theme.trim()),
+      mode, backend, reporter,
+      widths: parseNumbers(opts.widths ?? opts.width), themes,
       shardIndex: explicitIndex ?? shard.index, shardCount: explicitCount ?? shard.count, snapshotDir: opts.snapshotDir, failureDir: opts.failureDir,
       sut: opts.sutExtension && opts.sutModule ? {
         extensionPath: opts.sutExtension, modulePath: opts.sutModule, cwd: opts.sutCwd ?? process.cwd(),

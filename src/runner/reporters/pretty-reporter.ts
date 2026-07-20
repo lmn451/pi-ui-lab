@@ -27,7 +27,7 @@ function formatStatus(status: 'pass' | 'fail' | 'skip'): string {
 function formatResultItem(item: MatrixResultItem): string {
   const status = formatStatus(item.status);
   const duration = `${DIM}${formatDuration(item.duration)}${RESET}`;
-  const location = `${item.fixture} @ ${item.width}x${item.theme}`;
+  const location = `[${item.mode.toUpperCase()}] ${item.fixture} @ ${item.width}x${item.theme}`;
 
   let line = `  ${status} ${location} ${duration}`;
 

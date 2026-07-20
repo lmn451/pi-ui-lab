@@ -53,10 +53,17 @@ function redactValue(value: unknown, options: RedactionOptions): unknown {
 function redactString(value: string, options: RedactionOptions): string {
   const pathReplacement = options.pathReplacement ?? '<REDACTED_PATH>';
   const secretReplacement = options.secretReplacement ?? '<REDACTED_SECRET>';
-  const paths = options.pathPatterns ?? DEFAULT_PATH_PATTERNS;
-  const secrets = options.secretPatterns ?? DEFAULT_SECRET_PATTERNS;
+  const paths = options.pathPatterns ?? DEFAULT_PATH_PATTERNS.map((item) => ({ ...item, replacement: pathReplacement }));
+  const secrets = options.secretPatterns ?? defaultSecretPatterns(secretReplacement);
   let result = applyPatterns(value, paths, pathReplacement);
   return applyPatterns(result, secrets, secretReplacement);
+}
+
+function defaultSecretPatterns(replacement: string): RedactionPattern[] {
+  return DEFAULT_SECRET_PATTERNS.map((item, index) => ({
+    ...item,
+    replacement: index === 1 ? `Bearer ${replacement}` : index === 2 ? `$1$2${replacement}` : replacement,
+  }));
 }
 
 function applyPatterns(value: string, patterns: RedactionPattern[], fallback: string): string {

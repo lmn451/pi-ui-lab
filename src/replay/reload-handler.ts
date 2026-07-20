@@ -23,20 +23,29 @@ export function handleReload(
   };
 
   for (const key of preserve) {
-    if (key === 'ui' && currentState.ui) {
+    if (key === 'ui') {
       newState.ui = {
         footer: { ...currentState.ui.footer },
         widgets: [...currentState.ui.widgets],
         notifications: [...currentState.ui.notifications],
         toolRenders: [...currentState.ui.toolRenders],
       };
+      continue;
     }
-    if (key === 'recovery' && currentState.recovery) {
-      newState.recovery = {
-        cursors: { ...currentState.recovery.cursors },
-        processedReceipts: [...currentState.recovery.processedReceipts],
-        artifactEvents: [...currentState.recovery.artifactEvents],
-      };
+    if (key === 'recovery' || key === 'state') {
+      newState.recovery = cloneRecovery(currentState.recovery);
+      continue;
+    }
+    if (key === 'processedReceipts') {
+      newState.recovery.processedReceipts = [...currentState.recovery.processedReceipts];
+      continue;
+    }
+    if (key === 'artifactEvents' || key === 'artifacts') {
+      newState.recovery.artifactEvents = [...currentState.recovery.artifactEvents];
+      continue;
+    }
+    if (key in currentState.recovery.cursors) {
+      newState.recovery.cursors[key] = currentState.recovery.cursors[key];
     }
   }
 
@@ -49,6 +58,14 @@ function createEmptyUIState(): UIState {
     widgets: [],
     notifications: [],
     toolRenders: [],
+  };
+}
+
+function cloneRecovery(recovery: RecoveryState): RecoveryState {
+  return {
+    cursors: { ...recovery.cursors },
+    processedReceipts: [...recovery.processedReceipts],
+    artifactEvents: [...recovery.artifactEvents],
   };
 }
 

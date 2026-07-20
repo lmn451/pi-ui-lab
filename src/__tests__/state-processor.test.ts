@@ -27,13 +27,13 @@ function makeState(overrides: Partial<ProcessorState> = {}): ProcessorState {
 
 describe('processEvent', () => {
   describe('session_start', () => {
-    it('sets status to running and activeAgents to 1', () => {
+    it('starts a session without counting it as a subagent', () => {
       const state = makeState();
       const event: FixtureEvent = { at: 100, type: 'session_start' };
       const result = processEvent(event, state);
 
       expect(result.ui.footer.status).toBe('running');
-      expect(result.ui.footer.activeAgents).toBe(1);
+      expect(result.ui.footer.activeAgents).toBe(0);
     });
   });
 
@@ -91,7 +91,7 @@ describe('processEvent', () => {
       const result = processEvent(event, state);
 
       expect(result.ui.footer.activeAgents).toBe(1);
-      expect(result.ui.footer.status).toBe('completed');
+      expect(result.ui.footer.status).toBe('running');
       expect(result.ui.notifications).toHaveLength(1);
       expect(result.ui.notifications[0].kind).toBe('success');
       expect(result.ui.notifications[0].message).toBe('finished');
@@ -241,8 +241,8 @@ describe('processEvent', () => {
         state,
       );
 
-      expect(state.ui.footer.status).toBe('completed');
-      expect(state.ui.footer.activeAgents).toBe(2);
+      expect(state.ui.footer.status).toBe('running');
+      expect(state.ui.footer.activeAgents).toBe(1);
       expect(state.ui.notifications).toHaveLength(1);
     });
   });

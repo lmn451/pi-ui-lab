@@ -42,3 +42,10 @@ not a second renderer or a PTY substitute.
 
 Keep in-process replay as the supported baseline, keep PTY and PNG adapters
 optional, and report each capability explicitly in `pi-ui-lab doctor`.
+
+## Superseded execution policy
+
+The Phase 0 default remains available as explicit `--mode model`, but it is no longer
+presented as production UI verification. `--mode sut` verifies production extension
+semantics and `--mode pty` verifies rendered terminal conformance. See
+[execution modes](./execution-modes.md).

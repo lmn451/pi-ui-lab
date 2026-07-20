@@ -11,6 +11,7 @@ export async function runDoctor(requirement?: string): Promise<void> {
   const results: CheckResult[] = [];
   const required = parseRequirement(requirement);
   results.push(checkNodeVersion());
+  results.push({ name: 'Mode model', status: 'ok', detail: 'deterministic semantic replay' });
   const pty = await checkPtyBackends();
   results.push(...pty.results);
   const pi = await checkPiCompatibility();
@@ -18,6 +19,14 @@ export async function runDoctor(requirement?: string): Promise<void> {
     name: 'Pi /ui-lab',
     status: pi.compatible ? 'ok' : 'warn',
     detail: pi.detail,
+  });
+  results.push({
+    name: 'Mode sut', status: pi.compatible ? 'ok' : 'warn',
+    detail: pi.compatible ? 'available with explicit SUT paths' : 'requires compatible Pi and explicit SUT paths',
+  });
+  results.push({
+    name: 'Mode pty', status: pty.operational && pi.compatible ? 'ok' : 'warn',
+    detail: pty.operational && pi.compatible ? 'real terminal capture available with explicit SUT paths' : 'requires compatible Pi, PTY, and explicit SUT paths',
   });
   addRequirementFailure(results, required, pi.compatible, pty.operational);
   printTable(results);

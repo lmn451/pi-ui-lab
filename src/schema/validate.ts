@@ -1,9 +1,10 @@
 // Validation function using Ajv
-import { Ajv } from 'ajv';
-import { fixtureSchema } from './fixture-schema.js';
+import { Ajv, type ErrorObject } from 'ajv';
+import { fixtureEventSchema, fixtureSchema } from './fixture-schema.js';
 
 const ajv = new Ajv({ allErrors: true });
 const validate = ajv.compile(fixtureSchema as Record<string, unknown>);
+const validateEvent = ajv.compile(fixtureEventSchema as Record<string, unknown>);
 
 
 export interface ValidationResult {
@@ -17,11 +18,20 @@ export function validateFixture(data: unknown): ValidationResult {
     return { valid: true };
   }
 
-  const errors = (validate.errors ?? []).map((err) => {
-    const path = err.instancePath.replace(/^\//, '').replace(/\//g, '.');
-    const location = path ? `at ${path}` : 'at root';
-    return `${location}: ${err.message ?? 'unknown error'}`;
-  });
+  const errors = formatErrors(validate.errors);
 
   return { valid: false, errors };
+}
+
+export function validateFixtureEvent(data: unknown): ValidationResult {
+  if (validateEvent(data)) return { valid: true };
+  return { valid: false, errors: formatErrors(validateEvent.errors) };
+}
+
+function formatErrors(errors: ErrorObject[] | null | undefined): string[] {
+  return (errors ?? []).map((error) => {
+    const path = error.instancePath.replace(/^\//, '').replace(/\//g, '.');
+    const location = path ? `at ${path}` : 'at root';
+    return `${location}: ${error.message ?? 'unknown error'}`;
+  });
 }

@@ -16,7 +16,7 @@ function temporaryDirectory(): string {
 
 function mismatchBundle(expectedGrid: CellGrid, actualGrid: CellGrid) {
   return createFailureBundle({
-    match: false, fixtureName: 'visual fixture', width: 2, theme: 'dark',
+    match: false, mode: 'pty', fixtureName: 'visual fixture', width: 2, theme: 'dark',
     differences: [{ frameIndex: 0, type: 'cell', expected: 'A', actual: 'B', line: 1 }],
   }, {
     expectedText: 'A', actualText: 'B', expectedCell: JSON.stringify(expectedGrid),
@@ -52,6 +52,7 @@ describe('failure artifacts', () => {
     const expected: CellGrid = [[{ char: '界', width: 2 }, { char: '', width: 0 }]];
     const actual: CellGrid = [[{ char: 'A', width: 1 }, { char: ' ', width: 1 }]];
     const bundle = mismatchBundle(expected, actual);
+    expect(bundle.replayCommand).toContain('--mode pty');
     const first = temporaryDirectory();
     const second = temporaryDirectory();
     const files = saveFailureBundle(bundle, first);
@@ -74,7 +75,7 @@ describe('failure artifacts', () => {
   it('does not write PNGs for text-only failures', () => {
     const directory = temporaryDirectory();
     const bundle = createFailureBundle({
-      match: false, fixtureName: 'text fixture', width: 80, theme: 'dark',
+      match: false, mode: 'model', fixtureName: 'text fixture', width: 80, theme: 'dark',
       differences: [{ frameIndex: 0, type: 'text', expected: 'old', actual: 'new', line: 1 }],
     }, { expectedText: 'old', actualText: 'new' });
     saveFailureBundle(bundle, directory);

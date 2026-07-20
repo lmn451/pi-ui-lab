@@ -24,7 +24,10 @@ function makeTerminal(overrides: Partial<TerminalState> = {}): TerminalState {
     text: '',
     cells: [],
     cursor: { row: 0, col: 0, visible: true },
-    overflow: { horizontal: false, vertical: false, clippedCells: 0, scrollbackLines: 0, unexpectedWrap: false },
+    overflow: {
+      horizontal: false, vertical: false, clippedCells: 0, scrollbackLines: 0, unexpectedWrap: false,
+      collisions: 0, collision: false, rowOverflows: [], wideCharClips: 0,
+    },
     ...overrides,
   };
 }
@@ -65,7 +68,10 @@ describe('toHaveNoVerticalCollision', () => {
 
   it('fails when vertical collision detected', () => {
     const terminal = makeTerminal({
-      overflow: { horizontal: false, vertical: true, clippedCells: 0, scrollbackLines: 0, unexpectedWrap: false },
+      overflow: {
+        horizontal: false, vertical: false, clippedCells: 0, scrollbackLines: 0, unexpectedWrap: false,
+        collisions: 1, collision: true, rowOverflows: [], wideCharClips: 0,
+      },
     });
     const result = toHaveNoVerticalCollision(terminal, makeViewport());
     expect(result.pass).toBe(false);

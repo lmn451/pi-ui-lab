@@ -93,6 +93,8 @@ export async function runPty(options: PtyRunOptions): Promise<PtyRunResult> {
   let status: PtyRunResult['status'] = 'exited';
   let exitCode: number | null = null;
   let exitSignal: number | undefined;
+  let currentCols = options.cols;
+  let currentRows = options.rows;
   const timers: ReturnType<typeof setTimeout>[] = [];
   const dataDisposable = pty.onData((data) => { ansi += data; });
   const exitPromise = new Promise<void>((resolve) => {
@@ -115,7 +117,11 @@ export async function runPty(options: PtyRunOptions): Promise<PtyRunResult> {
     timers.push(setTimeout(() => pty.write(input.data), input.atMs));
   }
   for (const resize of options.resizes ?? []) {
-    timers.push(setTimeout(() => pty.resize(resize.cols, resize.rows), resize.atMs));
+    timers.push(setTimeout(() => {
+      pty.resize(resize.cols, resize.rows);
+      currentCols = resize.cols;
+      currentRows = resize.rows;
+    }, resize.atMs));
   }
   const timeout = options.timeoutMs ?? 10_000;
   timers.push(setTimeout(() => stop('timed-out'), timeout));
@@ -130,7 +136,7 @@ export async function runPty(options: PtyRunOptions): Promise<PtyRunResult> {
   if (graceTimer !== undefined) clearTimeout(graceTimer);
   if (options.signal) options.signal.removeEventListener('abort', abort);
   cleanup();
-  const terminal = captureTerminal(ansi, { cols: options.cols, rows: options.rows });
+  const terminal = captureTerminal(ansi, { cols: currentCols, rows: currentRows });
   return {
     ansi, output: terminal.text, terminal, exitCode, signal: exitSignal,
     status, durationMs: Date.now() - started,

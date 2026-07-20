@@ -36,7 +36,7 @@ export function createFailureBundle(diff: SnapshotDiff, options: FailureBundleOp
     actual: { text: options.actualText, cell: options.actualCell },
     expectedGrid: options.expectedGrid, actualGrid: options.actualGrid,
     diff,
-    replayCommand: `pi-ui-lab test ${quote(diff.fixtureName)} --width ${diff.width} --theme ${quote(diff.theme)}`,
+    replayCommand: `pi-ui-lab test ${quote(diff.fixtureName)} --mode ${diff.mode} --width ${diff.width} --theme ${quote(diff.theme)}`,
   };
 }
 

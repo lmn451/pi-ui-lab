@@ -13,6 +13,7 @@ function makeTextSnapshot(text: string): TextSnapshot {
       timestamp: '',
       viewport: { cols: 80, rows: 24 },
       theme: 'dark',
+      executionMode: 'model',
     },
   };
 }
@@ -34,6 +35,7 @@ function makeCellSnapshot(text: string): CellSnapshot {
       timestamp: '',
       viewport: { cols: 80, rows: 24 },
       theme: 'dark',
+      executionMode: 'model',
     },
   };
 }
@@ -76,6 +78,7 @@ describe('SnapshotDiffer', () => {
           timestamp: '',
           viewport: { cols: 80, rows: 24 },
           theme: 'dark',
+          executionMode: 'model',
         },
       };
       const actual = makeTextSnapshot('Frame 0');

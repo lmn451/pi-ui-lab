@@ -10,9 +10,9 @@ const mockResult: MatrixResult = {
   failed: 1,
   skipped: 0,
   results: [
-    { fixture: 'test-a', width: 80, theme: 'dark', status: 'pass', duration: 100 },
-    { fixture: 'test-a', width: 80, theme: 'light', status: 'pass', duration: 90 },
-    { fixture: 'test-b', width: 80, theme: 'dark', status: 'fail', duration: 110, error: 'Snapshot mismatch' },
+    { mode: 'model', fixture: 'test-a', width: 80, theme: 'dark', status: 'pass', duration: 100 },
+    { mode: 'model', fixture: 'test-a', width: 80, theme: 'light', status: 'pass', duration: 90 },
+    { mode: 'model', fixture: 'test-b', width: 80, theme: 'dark', status: 'fail', duration: 110, error: 'Snapshot mismatch' },
   ],
 };
 
@@ -106,7 +106,7 @@ describe('Reporters', () => {
       const resultWithSpecialChars: MatrixResult = {
         ...mockResult,
         results: [
-          { fixture: 'test', width: 80, theme: 'dark', status: 'fail', duration: 0, error: 'A < B & C > D' },
+          { mode: 'model', fixture: 'test', width: 80, theme: 'dark', status: 'fail', duration: 0, error: 'A < B & C > D' },
         ],
         total: 1,
         passed: 0,

@@ -2,7 +2,7 @@
 import { readFile } from 'node:fs/promises';
 import { resolve, dirname } from 'node:path';
 import type { Fixture, FixtureEvent } from '../types.js';
-import { validateFixture } from '../schema/validate.js';
+import { validateFixture, validateFixtureEvent } from '../schema/validate.js';
 import { sortEvents, validateEventOrdering } from './event-normalizer.js';
 
 export class FixtureLoader {
@@ -30,11 +30,17 @@ export class FixtureLoader {
     for (const imp of fixture.imports ?? []) {
       const filePath = resolve(dir, imp.source);
       const content = await readFile(filePath, 'utf-8');
-      const data = JSON.parse(content);
-      if (Array.isArray(data)) {
-        imported.push(...(data as FixtureEvent[]));
-      } else if (data.timeline) {
-        imported.push(...(data.timeline as FixtureEvent[]));
+      const data: unknown = JSON.parse(content);
+      const events = Array.isArray(data)
+        ? data
+        : isRecord(data) && Array.isArray(data.timeline) ? data.timeline : undefined;
+      if (!events) throw new Error(`Invalid fixture import ${filePath}: expected an event array or timeline`);
+      for (const [index, event] of events.entries()) {
+        const result = validateFixtureEvent(event);
+        if (!result.valid) {
+          throw new Error(`Invalid fixture import ${filePath} event ${index}: ${result.errors?.join(', ')}`);
+        }
+        imported.push(event as FixtureEvent);
       }
     }
     return imported;
@@ -56,4 +62,8 @@ export class FixtureLoader {
       timeline: sortEvents(merged),
     };
   }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
 }

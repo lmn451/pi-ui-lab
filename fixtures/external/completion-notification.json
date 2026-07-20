@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "name": "external-completion-notification",
+  "description": "Production SUT completion notification rendered through PTY mode",
+  "viewport": { "cols": 80, "rows": 24 },
+  "theme": "dark",
+  "pollIntervalMs": 1000,
+  "timeline": [
+    { "at": 0, "type": "session_start", "name": "init" },
+    {
+      "at": 1,
+      "type": "artifact_created",
+      "artifactId": "external-notify",
+      "artifactPath": ".pi/subagentura-artifacts/external-notify"
+    },
+    { "at": 2, "type": "done", "agentId": "external-notify", "content": "completion marker" },
+    { "at": 3, "type": "poll" },
+    { "at": 4, "type": "checkpoint", "name": "notification-rendered" }
+  ]
+}

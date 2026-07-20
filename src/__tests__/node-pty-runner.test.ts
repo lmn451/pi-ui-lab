@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { getPtyBackendStatusAsync, runPty } from '../process/index.js';
 
@@ -22,13 +23,15 @@ describe('real node-pty runner', () => {
     if (!(await operational())) return;
     const result = await runPty({
       executable: shell,
-      args: shellArgs('stty size; sleep .1; stty size'),
+      args: shellArgs('stty size; sleep 1; stty size'),
       cols: 60,
       rows: 20,
-      resizes: [{ atMs: 30, cols: 40, rows: 10 }],
+      resizes: [{ atMs: 500, cols: 40, rows: 10 }],
     });
     expect(result.output).toContain('20 60');
     expect(result.output).toContain('10 40');
+    expect(result.terminal.cells).toHaveLength(10);
+    expect(result.terminal.cells[0]).toHaveLength(40);
   });
 
   it('cleans up a process on timeout', async () => {
@@ -64,9 +67,11 @@ describe('real Pi extension PTY smoke', () => {
   it.each([60, 100])('executes /ui-lab at %d columns', async (cols) => {
     if (!(await operational())) return;
     const { runPiPty } = await import('../process/pi-pty-runner.js');
-    const result = await runPiPty({ fixture: 'fixtures/lifecycle-running.json', cols, rows: 24 });
+    const fixture = resolve(import.meta.dirname, '../../fixtures/lifecycle-running.json');
+    const result = await runPiPty({ fixture, cols, rows: 24, theme: 'light', cwd: tmpdir() });
     expect(result.output).toContain('Inspector |');
     expect(result.output).toContain('Viewport:');
+    expect(result.output).toContain('Theme: light');
   }, 15_000);
 });
 
@@ -77,11 +82,11 @@ describe('external production extension PTY conformance', () => {
     if (!(await operational())) return;
     const { runPiPty } = await import('../process/pi-pty-runner.js');
     const result = await runPiPty({
-      fixture: 'fixtures/lifecycle-running.json', cols, rows: 24,
+      fixture: 'fixtures/external/completion-notification.json', cols, rows: 24,
       externalSut: { extensionPath: extensionPath!, modulePath: modulePath! },
     });
     expect(result.output).toContain('external-notify');
-    expect(result.output).toContain('done (exit ?)');
+    expect(result.output).toContain('Sub-agent external-notify (done)');
     expect(result.output).toContain('completion marker');
   }, 15_000);
 });

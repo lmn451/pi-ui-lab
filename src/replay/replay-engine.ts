@@ -59,8 +59,9 @@ export class ReplayEngine {
     this.initScheduler();
 
     let cause: ReturnType<DeterministicScheduler['advance']>;
-    while ((cause = this.scheduler!.advance()) !== null) {
-      if (this.clock.now() > timeMs) break;
+    while (this.scheduler!.peekNextTime() !== null && this.scheduler!.peekNextTime()! <= timeMs) {
+      cause = this.scheduler!.advance();
+      if (cause === null) break;
       this.captureFrame(cause);
     }
     return this.buildResult();

@@ -17,6 +17,37 @@ export function charWidth(char: string): number {
   return 1;
 }
 
+export function readPrintableCluster(input: string, index: number): { text: string; width: number } {
+  const firstCodePoint = input.codePointAt(index);
+  if (firstCodePoint === undefined) return { text: '', width: 0 };
+  let text = String.fromCodePoint(firstCodePoint);
+  let cursor = index + text.length;
+  let width = charWidth(text);
+  const regionalIndicator = firstCodePoint >= 0x1f1e6 && firstCodePoint <= 0x1f1ff;
+  while (cursor < input.length) {
+    const codePoint = input.codePointAt(cursor);
+    if (codePoint === undefined) break;
+    const next = String.fromCodePoint(codePoint);
+    if (regionalIndicator && codePoint >= 0x1f1e6 && codePoint <= 0x1f1ff) {
+      text += next;
+      width = 2;
+      break;
+    }
+    if (charWidth(next) !== 0) break;
+    text += next;
+    cursor += next.length;
+    if (codePoint === 0x200d && cursor < input.length) {
+      const joinedCodePoint = input.codePointAt(cursor);
+      if (joinedCodePoint === undefined) break;
+      const joined = String.fromCodePoint(joinedCodePoint);
+      text += joined;
+      width = Math.max(width, charWidth(joined));
+      cursor += joined.length;
+    }
+  }
+  return { text, width };
+}
+
 const COLORS: Record<number, string> = {
   0: '#000000', 1: '#AA0000', 2: '#00AA00', 3: '#AA5500',
   4: '#0000AA', 5: '#AA00AA', 6: '#00AAAA', 7: '#AAAAAA',
@@ -54,6 +85,7 @@ interface State extends CursorState {
   scrollback: number;
   clippedCells: number;
   wrapped: boolean;
+  wrapPending: boolean;
 }
 
 export interface AnsiParseResult {
@@ -71,9 +103,10 @@ function clearCell(cell: Cell): void {
 }
 
 function scroll(grid: CellGrid, state: State, count: number): void {
+  const width = grid[0]?.length ?? 0;
   for (let i = 0; i < count && grid.length > 0; i++) {
     grid.shift();
-    grid.push(grid[0] ? grid[0].map(() => blank()) : []);
+    grid.push(Array.from({ length: width }, blank));
     state.scrollback++;
   }
 }
@@ -91,6 +124,7 @@ function moveRow(grid: CellGrid, state: State, row: number, viewport: Viewport):
 
 function newline(grid: CellGrid, state: State, viewport: Viewport): void {
   state.col = 0;
+  state.wrapPending = false;
   moveRow(grid, state, state.row + 1, viewport);
 }
 
@@ -140,8 +174,13 @@ function eraseLine(grid: CellGrid, row: number, start: number, end: number): voi
 
 function eraseDisplay(grid: CellGrid, state: State, mode: number): void {
   if (mode === 2 || mode === 3) {
-    for (const row of grid) eraseLine(grid, grid.indexOf(row), 0, row.length);
+    for (let row = 0; row < grid.length; row++) eraseLine(grid, row, 0, grid[row].length);
     if (mode === 3) state.scrollback = 0;
+    return;
+  }
+  if (mode === 1) {
+    for (let row = 0; row < state.row; row++) eraseLine(grid, row, 0, grid[row].length);
+    eraseLine(grid, state.row, 0, state.col + 1);
     return;
   }
   eraseLine(grid, state.row, state.col, grid[state.row]?.length ?? 0);
@@ -152,16 +191,17 @@ function executeCsi(grid: CellGrid, state: State, raw: string, final: string, vi
   const params = paramsFor(raw);
   const n = (index = 0) => params[index] || 1;
   if (final === 'm') { applySgr(params, state); return; }
+  state.wrapPending = false;
   if (final === 'A') state.row = Math.max(0, state.row - n());
-  else if (final === 'B') moveRow(grid, state, state.row + n(), viewport);
+  else if (final === 'B') state.row = Math.min(Math.max(0, viewport.rows - 1), state.row + n());
   else if (final === 'C') state.col = Math.min(Math.max(0, viewport.cols - 1), state.col + n());
   else if (final === 'D') state.col = Math.max(0, state.col - n());
-  else if (final === 'E') { moveRow(grid, state, state.row + n(), viewport); state.col = 0; }
+  else if (final === 'E') { state.row = Math.min(Math.max(0, viewport.rows - 1), state.row + n()); state.col = 0; }
   else if (final === 'F') { state.row = Math.max(0, state.row - n()); state.col = 0; }
   else if (final === 'G' || final === '`') state.col = Math.max(0, Math.min(viewport.cols - 1, n() - 1));
   else if (final === 'd') state.row = Math.max(0, Math.min(viewport.rows - 1, n() - 1));
   else if (final === 'H' || final === 'f') {
-    moveRow(grid, state, (params[0] || 1) - 1, viewport);
+    state.row = Math.max(0, Math.min(viewport.rows - 1, (params[0] || 1) - 1));
     state.col = Math.max(0, Math.min(viewport.cols - 1, (params[1] || 1) - 1));
   } else if (final === 'J') eraseDisplay(grid, state, params[0] ?? 0);
   else if (final === 'K') {
@@ -195,32 +235,61 @@ function skipString(ansi: string, index: number): number {
   return index;
 }
 
+function clearGlyphAt(grid: CellGrid, row: number, col: number): void {
+  const target = grid[row]?.[col];
+  if (!target) return;
+  if (target.width === 0 && col > 0) {
+    const lead = grid[row]?.[col - 1];
+    if (lead?.width === 2) clearCell(lead);
+  }
+  if (target.width === 2) {
+    const continuation = grid[row]?.[col + 1];
+    if (continuation) clearCell(continuation);
+  }
+  clearCell(target);
+}
+
 function writePrintable(grid: CellGrid, state: State, char: string, width: number, viewport: Viewport): void {
   if (width === 0) {
-    const previous = grid[state.row]?.[Math.max(0, state.col - 1)];
+    const previousCol = state.wrapPending ? state.col : Math.max(0, state.col - 1);
+    const previous = grid[state.row]?.[previousCol];
     if (previous && previous.width > 0) previous.char += char;
     return;
   }
   if (viewport.cols === 0 || viewport.rows === 0) { state.clippedCells++; return; }
-  if (state.col >= viewport.cols) { state.wrapped = true; newline(grid, state, viewport); }
-  if (width === 2 && state.col === viewport.cols - 1) {
-    state.clippedCells++; state.wrapped = true; newline(grid, state, viewport);
+  if (width > viewport.cols) { state.clippedCells++; return; }
+  if (state.wrapPending || (width === 2 && state.col === viewport.cols - 1)) {
+    state.wrapped = true;
+    newline(grid, state, viewport);
   }
+  clearGlyphAt(grid, state.row, state.col);
+  if (width === 2) clearGlyphAt(grid, state.row, state.col + 1);
   const cell: Cell = { char, width, fg: state.fg, bg: state.bg,
     bold: state.bold || undefined, italic: state.italic || undefined,
     underline: state.underline || undefined };
   setCell(grid, state.row, state.col, cell);
   if (width === 2) setCell(grid, state.row, state.col + 1, { char: '', width: 0, fg: state.fg, bg: state.bg });
-  state.col += width;
-  if (state.col >= viewport.cols) { state.wrapped = true; newline(grid, state, viewport); }
+  const nextCol = state.col + width;
+  if (nextCol >= viewport.cols) {
+    state.col = viewport.cols - 1;
+    state.wrapPending = true;
+  } else {
+    state.col = nextCol;
+    state.wrapPending = false;
+  }
 }
 
 /** Parse ANSI output into a fixed-size terminal cell grid. */
-export function parseAnsiDetailed(ansi: string, viewport: Viewport): AnsiParseResult {
+export function parseAnsiDetailed(
+  ansi: string, viewport: Viewport, initialCursor: CursorState = { row: 0, col: 0, visible: true },
+): AnsiParseResult {
   assertViewport(viewport);
   const grid = createEmptyGrid(viewport.rows, viewport.cols);
-  const state: State = { row: 0, col: 0, visible: true, bold: false, italic: false,
-    underline: false, savedRow: 0, savedCol: 0, scrollback: 0, clippedCells: 0, wrapped: false };
+  const initialRow = Math.max(0, Math.min(Math.max(0, viewport.rows - 1), initialCursor.row));
+  const initialCol = Math.max(0, Math.min(Math.max(0, viewport.cols - 1), initialCursor.col));
+  const state: State = { row: initialRow, col: initialCol, visible: initialCursor.visible, bold: false, italic: false,
+    underline: false, savedRow: initialRow, savedCol: initialCol, scrollback: 0, clippedCells: 0,
+    wrapped: false, wrapPending: false };
   let index = 0;
   while (index < ansi.length) {
     const char = ansi[index];
@@ -238,20 +307,18 @@ export function parseAnsiDetailed(ansi: string, viewport: Viewport): AnsiParseRe
       } else if (next === '7') { state.savedRow = state.row; state.savedCol = state.col; index += 2;
       } else if (next === '8') { state.row = state.savedRow; state.col = state.savedCol; index += 2;
       } else { index += Math.min(2, ansi.length - index); }
-    } else if (char === '\r') { state.col = 0; index++; }
+    } else if (char === '\r') { state.col = 0; state.wrapPending = false; index++; }
     else if (char === '\n') { newline(grid, state, viewport); index++; }
     else if (char === '\t') {
-      const nextTab = Math.min(viewport.cols, (Math.floor(state.col / 8) + 1) * 8);
-      if (nextTab >= viewport.cols) { state.col = viewport.cols; state.wrapped = true; }
-      else state.col = nextTab;
+      state.wrapPending = false;
+      state.col = Math.min(Math.max(0, viewport.cols - 1), (Math.floor(state.col / 8) + 1) * 8);
       index++;
-    } else if (char === '\b') { state.col = Math.max(0, state.col - 1); index++; }
+    } else if (char === '\b') { state.wrapPending = false; state.col = Math.max(0, state.col - 1); index++; }
     else if (char.charCodeAt(0) < 0x20 || char.charCodeAt(0) === 0x7f) index++;
     else {
-      const codePoint = ansi.codePointAt(index) ?? 0;
-      const printable = String.fromCodePoint(codePoint);
-      writePrintable(grid, state, printable, charWidth(printable), viewport);
-      index += printable.length;
+      const printable = readPrintableCluster(ansi, index);
+      writePrintable(grid, state, printable.text, printable.width, viewport);
+      index += printable.text.length;
     }
   }
   return { grid, cursor: { row: state.row, col: state.col, visible: state.visible },

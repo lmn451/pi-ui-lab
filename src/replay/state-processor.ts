@@ -79,7 +79,7 @@ function processSessionStart(
     ...state,
     ui: {
       ...state.ui,
-      footer: { ...state.ui.footer, status: 'running' as AgentStatus, activeAgents: 1 },
+      footer: { ...state.ui.footer, status: 'running' as AgentStatus, activeAgents: 0 },
     },
   };
 }
@@ -133,6 +133,7 @@ function processDone(
   state: ProcessorState,
 ): ProcessorState {
   const agents = state.ui.footer.activeAgents;
+  const remainingAgents = Math.max(0, agents - 1);
   const newNotifications = [
     ...state.ui.notifications,
     {
@@ -149,8 +150,8 @@ function processDone(
       ...state.ui,
       footer: {
         ...state.ui.footer,
-        status: 'completed' as AgentStatus,
-        activeAgents: Math.max(0, agents - 1),
+        status: (remainingAgents === 0 ? 'completed' : 'running') as AgentStatus,
+        activeAgents: remainingAgents,
       },
       notifications: newNotifications,
     },
@@ -236,9 +237,14 @@ function processStateWritten(
   event: Extract<FixtureEvent, { type: 'state_written' }>,
   state: ProcessorState,
 ): ProcessorState {
-  const value = event.value as string | number | null;
-  const newCursors = { ...state.recovery.cursors, [event.key]: value };
-  const newReceipts = [...state.recovery.processedReceipts, event.key];
+  const value = event.value;
+  const isCursorValue = typeof value === 'string' || typeof value === 'number' || value === null;
+  const newCursors = isCursorValue
+    ? { ...state.recovery.cursors, [event.key]: value }
+    : { ...state.recovery.cursors };
+  const newReceipts = state.recovery.processedReceipts.includes(event.key)
+    ? [...state.recovery.processedReceipts]
+    : [...state.recovery.processedReceipts, event.key];
   return {
     ...state,
     recovery: {

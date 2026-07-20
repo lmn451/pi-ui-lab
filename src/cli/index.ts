@@ -34,11 +34,11 @@ program
   .action(async (fixture: string, opts: Record<string, string>) => {
     try {
       await runReplay(fixture, {
-        format: (opts.format as 'text' | 'ansi' | 'json') ?? 'text',
-        at: opts.at ? Number(opts.at) : undefined,
+        format: parseReplayFormat(opts.format),
+        at: opts.at ? parseNonNegativeNumber(opts.at, '--at') : undefined,
         checkpoint: opts.checkpoint,
-        cols: opts.cols ? Number(opts.cols) : undefined,
-        rows: opts.rows ? Number(opts.rows) : undefined,
+        cols: opts.cols ? parsePositiveInteger(opts.cols, '--cols') : undefined,
+        rows: opts.rows ? parsePositiveInteger(opts.rows, '--rows') : undefined,
         theme: opts.theme,
         output: opts.output,
       });
@@ -77,7 +77,8 @@ program
   .option('--sut-extension <path>', 'external production extension entry path')
   .option('--sut-module <path>', 'external production module path')
   .option('--sut-cwd <path>', 'external SUT sandbox cwd')
-  .option('--backend <backend>', 'replay backend (in-process or pty)', 'in-process')
+  .option('--mode <mode>', 'execution mode (model, sut, or pty)')
+  .option('--backend <backend>', 'deprecated transport override (in-process or pty)')
   .option('--reporter <reporter>', 'test reporter (pretty, json, junit)', 'pretty')
   .action(async (patterns: string[], opts: Record<string, string>) => {
     await runTest(patterns, {
@@ -87,6 +88,7 @@ program
       shard: opts.shard, shardIndex: opts.shardIndex, shardCount: opts.shardCount,
       snapshotDir: opts.snapshotDir, failureDir: opts.failureDir,
       sutExtension: opts.sutExtension, sutModule: opts.sutModule, sutCwd: opts.sutCwd,
+      mode: opts.mode as 'model' | 'sut' | 'pty',
       backend: opts.backend as 'in-process' | 'pty',
       reporter: opts.reporter as 'pretty' | 'json' | 'junit',
     });
@@ -144,5 +146,25 @@ program
       process.exitCode = 2;
     }
   });
+
+function parseReplayFormat(value: string | undefined): 'text' | 'ansi' | 'json' {
+  const format = value ?? 'text';
+  if (format !== 'text' && format !== 'ansi' && format !== 'json') {
+    throw new Error(`Invalid replay format: ${format}`);
+  }
+  return format;
+}
+
+function parseNonNegativeNumber(value: string, option: string): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0) throw new Error(`${option} must be a non-negative number`);
+  return parsed;
+}
+
+function parsePositiveInteger(value: string, option: string): number {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 1) throw new Error(`${option} must be a positive integer`);
+  return parsed;
+}
 
 program.parse();

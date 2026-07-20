@@ -19,7 +19,7 @@ export function reportJunit(result: MatrixResult): string {
 
   const testcases = result.results
     .map((r) => {
-      const name = `${r.fixture} @ ${r.width}x${r.theme}`;
+      const name = `[${r.mode.toUpperCase()}] ${r.fixture} @ ${r.width}x${r.theme}`;
       const time = formatTime(r.duration);
 
       if (r.status === 'pass') {

@@ -11,6 +11,7 @@ export interface JsonReport {
     duration: number;
   };
   results: Array<{
+    mode: 'model' | 'sut' | 'pty';
     fixture: string;
     width: number;
     theme: string;
@@ -34,6 +35,7 @@ export function reportJson(result: MatrixResult): string {
       duration: totalDuration,
     },
     results: result.results.map((r) => ({
+      mode: r.mode,
       fixture: r.fixture,
       width: r.width,
       theme: r.theme,

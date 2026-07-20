@@ -171,18 +171,23 @@ export class InspectorSession {
   }
 
   search(query: string, options: InspectorSearchOptions = {}): InspectorSearchResult[] {
+    const selectedIndex = this.current?.index;
     this.replayAll();
-    const needle = query.toLowerCase();
-    const results: InspectorSearchResult[] = [];
-    for (const event of this.fixture.timeline) {
-      if (!matchesEvent(event, needle, options.kind)) continue;
-      const frame = this.frameForEvent(event);
-      if (frame) results.push({ frame, event });
+    try {
+      const needle = query.toLowerCase();
+      const results: InspectorSearchResult[] = [];
+      for (const event of this.fixture.timeline) {
+        if (!matchesEvent(event, needle, options.kind)) continue;
+        const frame = this.frameForEvent(event);
+        if (frame) results.push({ frame, event });
+      }
+      if (!options.kind || options.kind === 'notification') {
+        results.push(...this.searchNotificationResults(needle));
+      }
+      return dedupeResults(results);
+    } finally {
+      this.restoreSelection(selectedIndex);
     }
-    if (!options.kind || options.kind === 'notification') {
-      results.push(...this.searchNotificationResults(needle));
-    }
-    return dedupeResults(results);
   }
 
   searchByAgent(agent: string): InspectorSearchResult[] {
@@ -254,14 +259,16 @@ export class InspectorSession {
   }
 
   private replayAll(): void {
-    const targetIndex = this.current?.index;
     this.resetEngine();
     while (this.step() !== null) {
       // Deliberately empty: stepping is the deterministic source of frames.
     }
-    this.current = targetIndex === undefined
-      ? null
-      : this.engine.getFrameAt(targetIndex);
+  }
+
+  private restoreSelection(index: number | undefined): void {
+    this.resetEngine();
+    if (index === undefined) return;
+    for (let current = 0; current <= index; current += 1) this.step();
   }
 
   private frameForEvent(event: FixtureEvent): ReplayFrame | null {

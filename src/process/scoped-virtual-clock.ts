@@ -111,12 +111,16 @@ export class ScopedExternalRuntimeController {
     this.assertInstalled();
     validateTime(timeMs);
     if (timeMs < this.currentTime) throw new Error('Virtual clock cannot move backwards');
-    this.currentTime = timeMs;
-    while (true) {
-      const next = this.nextDue(timeMs);
-      if (!next) return;
-      next.nextFireAt += next.intervalMs;
-      this.invokeSync(() => next.callback(...next.args));
+    try {
+      while (true) {
+        const next = this.nextDue(timeMs);
+        if (!next) return;
+        this.currentTime = next.nextFireAt;
+        next.nextFireAt += next.intervalMs;
+        this.invokeSync(() => next.callback(...next.args));
+      }
+    } finally {
+      this.currentTime = timeMs;
     }
   }
 

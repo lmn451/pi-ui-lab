@@ -2,7 +2,7 @@
 // Terminal structure assertions operating on TerminalState
 // =============================================================================
 
-import type { TerminalState, Viewport, CellGrid } from '../types.js';
+import type { TerminalState, Viewport } from '../types.js';
 import type { AssertionResult } from './types.js';
 import { pass, fail } from './types.js';
 
@@ -26,15 +26,15 @@ export function toHaveNoHorizontalOverflow(terminal: TerminalState): AssertionRe
  */
 export function toHaveNoVerticalCollision(
   terminal: TerminalState,
-  viewport: Viewport,
+  _viewport: Viewport,
 ): AssertionResult {
   const { overflow } = terminal;
-  if (!overflow.vertical) {
+  if (!overflow.collision) {
     return pass('No vertical collision');
   }
   return fail(
     `Vertical collision detected`,
-    overflow.vertical,
+    overflow.collision,
     false,
   );
 }

@@ -61,6 +61,7 @@ export function buildSnapshotMetadata(
   fixtureHash: string,
   viewport: { cols: number; rows: number },
   theme: string,
+  executionMode: SnapshotMetadata['executionMode'] = 'model',
 ): SnapshotMetadata {
   return {
     fixtureName,
@@ -70,6 +71,7 @@ export function buildSnapshotMetadata(
     timestamp: '1970-01-01T00:00:00.000Z',
     viewport,
     theme,
+    executionMode,
   };
 }
 

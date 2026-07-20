@@ -42,6 +42,7 @@ function makeMetadata(): SnapshotMetadata {
     timestamp: '2024-01-15T10:30:00.000Z',
     viewport: { cols: 80, rows: 24 },
     theme: 'default',
+    executionMode: 'model',
   };
 }
 

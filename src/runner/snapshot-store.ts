@@ -44,11 +44,12 @@ export class FileSnapshotStore implements SnapshotStore {
   }
 
   private loadSnapshot<T>(path: string): T | null {
+    if (!existsSync(path)) return null;
     try {
-      if (!existsSync(path)) return null;
       return JSON.parse(readFileSync(path, 'utf8')) as T;
-    } catch {
-      return null;
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to load snapshot ${path}: ${detail}`, { cause: error });
     }
   }
 
