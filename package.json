@@ -27,7 +27,7 @@
     "typecheck": "tsc --noEmit",
     "prepare:node-pty": "node scripts/prepare-node-pty.mjs",
     "postinstall": "npm run prepare:node-pty",
-    "check": "npm run typecheck && npm run lint && npm run test",
+    "check": "npm run loop:review && npm run typecheck && npm run lint && npm run test",
     "loop:review": "node scripts/loop-review-validator.mjs"
   },
   "dependencies": {
