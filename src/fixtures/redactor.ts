@@ -5,6 +5,17 @@ export interface RedactionPattern {
   replacement: string;
 }
 
+export interface RedactionStats {
+  secretReplacements: number;
+  pathReplacements: number;
+  changed: boolean;
+}
+
+export interface RedactionResult<T> {
+  value: T;
+  stats: RedactionStats;
+}
+
 export interface RedactionOptions {
   secretReplacement?: string;
   pathReplacement?: string;
@@ -31,6 +42,16 @@ export function redact<T>(value: T, options: RedactionOptions = {}): T {
   return redactValue(value, options) as T;
 }
 
+/**
+ * Redacts value and tracks whether any replacements were applied.
+ */
+export function redactWithStats<T>(value: T, options: RedactionOptions = {}): RedactionResult<T> {
+  const stats = { secretReplacements: 0, pathReplacements: 0, changed: false };
+  const replaced = redactValueWithStats(value, options, stats);
+  stats.changed = stats.secretReplacements > 0 || stats.pathReplacements > 0;
+  return { value: replaced as T, stats };
+}
+
 export function redactEvent(event: FixtureEvent, options: RedactionOptions = {}): FixtureEvent {
   return redact(event, options);
 }
@@ -50,6 +71,23 @@ function redactValue(value: unknown, options: RedactionOptions): unknown {
   return value;
 }
 
+function redactValueWithStats(value: unknown, options: RedactionOptions, stats: RedactionStats): unknown {
+  if (typeof value === 'string') {
+    return redactStringWithStats(value, options, stats);
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => redactValueWithStats(item, options, stats));
+  }
+  if (value && typeof value === 'object') {
+    const result: Record<string, unknown> = {};
+    for (const [key, item] of Object.entries(value)) {
+      result[key] = redactValueWithStats(item, options, stats);
+    }
+    return result;
+  }
+  return value;
+}
+
 function redactString(value: string, options: RedactionOptions): string {
   const pathReplacement = options.pathReplacement ?? '<REDACTED_PATH>';
   const secretReplacement = options.secretReplacement ?? '<REDACTED_SECRET>';
@@ -57,6 +95,19 @@ function redactString(value: string, options: RedactionOptions): string {
   const secrets = options.secretPatterns ?? defaultSecretPatterns(secretReplacement);
   let result = applyPatterns(value, paths, pathReplacement);
   return applyPatterns(result, secrets, secretReplacement);
+}
+
+function redactStringWithStats(value: string, options: RedactionOptions, stats: RedactionStats): string {
+  const pathReplacement = options.pathReplacement ?? '<REDACTED_PATH>';
+  const secretReplacement = options.secretReplacement ?? '<REDACTED_SECRET>';
+  const paths = options.pathPatterns ?? DEFAULT_PATH_PATTERNS.map((item) => ({ ...item, replacement: pathReplacement }));
+  const secrets = options.secretPatterns ?? defaultSecretPatterns(secretReplacement);
+  let result = applyPatternsWithStats(value, paths, pathReplacement, (count) => {
+    stats.pathReplacements += count;
+  });
+  return applyPatternsWithStats(result, secrets, secretReplacement, (count) => {
+    stats.secretReplacements += count;
+  });
 }
 
 function defaultSecretPatterns(replacement: string): RedactionPattern[] {
@@ -72,6 +123,26 @@ function applyPatterns(value: string, patterns: RedactionPattern[], fallback: st
     const flags = item.pattern.flags.includes('g') ? item.pattern.flags : `${item.pattern.flags}g`;
     const pattern = new RegExp(item.pattern.source, flags);
     result = result.replace(pattern, item.replacement || fallback);
+  }
+  return result;
+}
+
+function applyPatternsWithStats(
+  value: string,
+  patterns: RedactionPattern[],
+  fallback: string,
+  onReplace: (count: number) => void,
+): string {
+  let result = value;
+  for (const item of patterns) {
+    const flags = item.pattern.flags.includes('g') ? item.pattern.flags : `${item.pattern.flags}g`;
+    const pattern = new RegExp(item.pattern.source, flags);
+    let count = 0;
+    result = result.replace(pattern, () => {
+      count += 1;
+      return item.replacement || fallback;
+    });
+    onReplace(count);
   }
   return result;
 }

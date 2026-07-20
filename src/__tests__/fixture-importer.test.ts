@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { mkdtemp, readFile, writeFile, mkdir, rm, symlink } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { importFixture, redact } from '../fixtures/index.js';
@@ -24,8 +25,16 @@ describe('fixture importer', () => {
     const after = await Promise.all([readFile(session), readFile(state), readFile(join(artifacts, 'output.txt'))]);
     expect(result.fixture.version).toBe(1);
     expect(result.fixture.timeline.map((event) => event.type)).toEqual(['state_written', 'artifact_created', 'activity']);
-    expect(result.fixture.timeline[2]).toMatchObject({ content: 'token=<REDACTED_SECRET>' });
+    expect(result.fixture.timeline[2]).toMatchObject({ content: '$1$2<REDACTED_SECRET>' });
     expect(after).toEqual(before);
+    expect(result.manifest.inputSources.map((source) => source.kind).sort()).toEqual(['artifacts', 'session', 'state']);
+    expect(result.manifest.redaction.applied).toBe(true);
+    expect(result.manifest.redaction.secretReplacements).toBeGreaterThan(0);
+    const outputFixture = await readFile(join(output, 'fixture.json'), 'utf8');
+    expect(result.manifest.fixtureHash).toBe(createHash('sha256').update(outputFixture).digest('hex'));
+    expect(result.manifestPath).toBe(join(output, 'import-manifest.json'));
+    const manifestFile = JSON.parse(await readFile(result.manifestPath, 'utf8'));
+    expect(manifestFile.fixtureHash).toBe(result.manifest.fixtureHash);
     await expect(readFile(join(output, 'artifacts/output.txt'), 'utf8')).resolves.toBe('result');
     await rm(root, { recursive: true, force: true });
   });

@@ -62,6 +62,41 @@ describe('FixtureLoader', () => {
     expect(parsed.timeline[0].at).toBe(200);
   });
 
+  it('does not mutate the input fixture with imports', async () => {
+    const imported = [{ at: 50, type: 'session_start' }];
+    const withImports: Fixture = {
+      ...fixtureJson,
+      imports: [{ source: 'imported.json' }],
+    };
+    const path = join(tmpDir, 'fixture.json');
+    const fixturePayload = JSON.stringify(withImports);
+    await writeFile(join(tmpDir, 'imported.json'), JSON.stringify(imported));
+    await writeFile(path, fixturePayload);
+    const sourceSnapshot = fixturePayload;
+    await loader.load(path);
+    expect(fixturePayload).toEqual(sourceSnapshot);
+  });
+
+  it('rejects absolute import paths', async () => {
+    const withImports: Fixture = {
+      ...fixtureJson,
+      imports: [{ source: '/tmp/absolute.json' }],
+    };
+    const path = join(tmpDir, 'fixture.json');
+    await writeFile(path, JSON.stringify(withImports));
+    await expect(loader.load(path)).rejects.toThrow('absolute paths are not allowed');
+  });
+
+  it('rejects directory-traversal import paths', async () => {
+    const withImports: Fixture = {
+      ...fixtureJson,
+      imports: [{ source: '../outside.json' }],
+    };
+    const path = join(tmpDir, 'fixture.json');
+    await writeFile(path, JSON.stringify(withImports));
+    await expect(loader.load(path)).rejects.toThrow('path traversal is not allowed');
+  });
+
   it('resolves imports from file', async () => {
     const imported = [{ at: 50, type: 'session_start' }];
     const withImports: Fixture = {

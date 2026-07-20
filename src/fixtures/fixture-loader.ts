@@ -1,6 +1,6 @@
 // Fixture loader
 import { readFile } from 'node:fs/promises';
-import { resolve, dirname } from 'node:path';
+import { dirname, isAbsolute, relative, resolve } from 'node:path';
 import type { Fixture, FixtureEvent } from '../types.js';
 import { validateFixture, validateFixtureEvent } from '../schema/validate.js';
 import { sortEvents, validateEventOrdering } from './event-normalizer.js';
@@ -28,7 +28,17 @@ export class FixtureLoader {
     const dir = dirname(basePath);
     const imported: FixtureEvent[] = [];
     for (const imp of fixture.imports ?? []) {
-      const filePath = resolve(dir, imp.source);
+      if (!isRecord(imp) || typeof imp.source !== 'string') {
+        throw new Error(`Invalid fixture import entry: expected { source: string }`);
+      }
+      if (isAbsolute(imp.source)) {
+        throw new Error(`Invalid fixture import path '${imp.source}': absolute paths are not allowed`);
+      }
+      const rel = this.safeRelative(imp.source);
+      const filePath = resolve(dir, rel);
+      if (relative(dir, filePath).startsWith('..')) {
+        throw new Error(`Invalid fixture import path '${imp.source}': path escapes fixture directory`);
+      }
       const content = await readFile(filePath, 'utf-8');
       const data: unknown = JSON.parse(content);
       const events = Array.isArray(data)
@@ -44,6 +54,25 @@ export class FixtureLoader {
       }
     }
     return imported;
+  }
+
+  private safeRelative(path: string): string {
+    const normalized = path.replaceAll('\\', '/');
+    if (!normalized || normalized.startsWith('/')) {
+      throw new Error(`Invalid fixture import path '${path}': must be a relative path`);
+    }
+    if (normalized.startsWith('../') || normalized.endsWith('/..') || normalized.includes('/../')) {
+      throw new Error(`Invalid fixture import path '${path}': path traversal is not allowed`);
+    }
+    const segments = normalized.split('/').filter(Boolean);
+    if (segments.includes('..')) {
+      throw new Error(`Invalid fixture import path '${path}': path traversal is not allowed`);
+    }
+    const cleaned = segments.filter((segment) => segment !== '.');
+    if (cleaned.length === 0) {
+      throw new Error(`Invalid fixture import path '${path}': must reference a file`);
+    }
+    return cleaned.join('/');
   }
 
   normalizeEvents(events: FixtureEvent[]): FixtureEvent[] {

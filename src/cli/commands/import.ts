@@ -7,6 +7,9 @@ export async function runImport(
   const options = buildImportOptions(args, opts);
   const result = await importFixture(options);
   console.log(`Imported ${result.fixture.timeline.length} events into ${result.fixturePath}`);
+  if (result.manifestPath) {
+    console.log(`Import manifest: ${result.manifestPath}`);
+  }
   return 0;
 }
 

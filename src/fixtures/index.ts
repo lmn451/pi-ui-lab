@@ -6,6 +6,6 @@ export {
   insertReloadEvents,
 } from './event-normalizer.js';
 export { importFixture, FixtureImporter } from './fixture-importer.js';
-export type { FixtureImportOptions, FixtureImportResult } from './fixture-importer.js';
-export { redact, redactEvent, redactEvents } from './redactor.js';
-export type { RedactionOptions, RedactionPattern } from './redactor.js';
+export type { FixtureImportOptions, FixtureImportManifest, FixtureImportResult } from './fixture-importer.js';
+export { redact, redactEvent, redactEvents, redactWithStats } from './redactor.js';
+export type { RedactionOptions, RedactionPattern, RedactionResult, RedactionStats } from './redactor.js';

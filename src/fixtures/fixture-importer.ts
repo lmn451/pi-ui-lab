@@ -1,8 +1,9 @@
+import { createHash } from 'node:crypto';
 import { mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { basename, dirname, join, relative, resolve, sep } from 'node:path';
 import type { EventType, Fixture, FixtureEvent } from '../types.js';
 import { validateFixture } from '../schema/validate.js';
-import { redactEvents, type RedactionOptions } from './redactor.js';
+import { redactWithStats, type RedactionOptions } from './redactor.js';
 import { sortEvents } from './event-normalizer.js';
 
 export interface FixtureImportOptions extends RedactionOptions {
@@ -22,6 +23,29 @@ export interface FixtureImportResult {
   fixture: Fixture;
   fixturePath: string;
   artifactPaths: string[];
+  manifestPath: string;
+  manifest: FixtureImportManifest;
+}
+
+export interface FixtureImportManifest {
+  version: 1;
+  generatedAt: string;
+  fixturePath: string;
+  fixtureHash: string;
+  inputSources: Array<{
+    kind: 'session' | 'events' | 'state' | 'artifacts';
+    path: string;
+    hash?: string;
+    fileCount?: number;
+  }>;
+  redaction: {
+    enabledSecretRedaction: boolean;
+    enabledPathRedaction: boolean;
+    secretReplacements: number;
+    pathReplacements: number;
+    totalReplacements: number;
+    applied: boolean;
+  };
 }
 
 const EVENT_TYPES = new Set<EventType>([
@@ -51,21 +75,51 @@ export async function importFixture(options: FixtureImportOptions): Promise<Fixt
   const sources = sourcePaths(options);
   await assertSafeOutput(outputDir, sources);
   await mkdir(outputDir, { recursive: true });
+  const sourceRecords = await collectSourceRecords(options);
+
   const timeline: FixtureEvent[] = [];
   if (options.session) timeline.push(...await readEvents(options.session, 'session'));
   if (options.events) timeline.push(...await readEvents(options.events, 'events'));
   if (options.state) timeline.push(...await readState(options.state));
   const artifactPaths = options.artifacts ? await copyArtifacts(options.artifacts, outputDir) : [];
+
+  const artifactCount = artifactPaths.length;
   timeline.push(...artifactPaths.map((path, index) => ({
     at: index,
     type: 'artifact_created' as const,
     artifactId: path,
     artifactPath: path,
   })));
-  const fixture = buildFixture(options, timeline);
+  const redactedSource = redactWithStats(sortEvents(timeline), options);
+  const fixture = buildFixture(options, redactedSource.value);
   const fixturePath = join(outputDir, 'fixture.json');
   await writeFile(fixturePath, `${JSON.stringify(fixture, null, 2)}\n`, 'utf8');
-  return { fixture, fixturePath, artifactPaths };
+  const fixtureHash = hashText(await readFile(fixturePath, 'utf8'));
+  const manifest: FixtureImportManifest = {
+    version: 1,
+    generatedAt: new Date().toISOString(),
+    fixturePath,
+    fixtureHash,
+    inputSources: sourceRecords,
+    redaction: {
+      enabledSecretRedaction: true,
+      enabledPathRedaction: true,
+      secretReplacements: redactedSource.stats.secretReplacements,
+      pathReplacements: redactedSource.stats.pathReplacements,
+      totalReplacements: redactedSource.stats.secretReplacements + redactedSource.stats.pathReplacements,
+      applied: redactedSource.stats.changed,
+    },
+  };
+  if (options.artifacts) {
+    manifest.inputSources.push({
+      kind: 'artifacts',
+      path: resolve(options.artifacts),
+      fileCount: artifactCount,
+    });
+  }
+  const manifestPath = join(outputDir, 'import-manifest.json');
+  await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
+  return { fixture, fixturePath, artifactPaths, manifestPath, manifest };
 }
 
 export class FixtureImporter {
@@ -83,6 +137,40 @@ function validateImportOptions(options: FixtureImportOptions): void {
 function sourcePaths(options: FixtureImportOptions): string[] {
   return [options.session, options.events, options.state, options.artifacts]
     .filter((source): source is string => Boolean(source)).map((source) => resolve(source));
+}
+
+async function collectSourceRecords(options: FixtureImportOptions): Promise<FixtureImportManifest['inputSources']> {
+  const records: FixtureImportManifest['inputSources'] = [];
+  if (options.session) {
+    records.push({
+      kind: 'session',
+      path: resolve(options.session),
+      hash: await hashFile(resolve(options.session)),
+    });
+  }
+  if (options.events) {
+    records.push({
+      kind: 'events',
+      path: resolve(options.events),
+      hash: await hashFile(resolve(options.events)),
+    });
+  }
+  if (options.state) {
+    records.push({
+      kind: 'state',
+      path: resolve(options.state),
+      hash: await hashFile(resolve(options.state)),
+    });
+  }
+  return records;
+}
+
+function hashText(text: string): string {
+  return createHash('sha256').update(text).digest('hex');
+}
+
+async function hashFile(filePath: string): Promise<string> {
+  return hashText(await readFile(filePath, 'utf8'));
 }
 
 async function assertSafeOutput(output: string, sources: string[]): Promise<void> {
@@ -264,7 +352,7 @@ function portablePath(value: string, prefix: string): string {
 }
 
 function buildFixture(options: FixtureImportOptions, events: FixtureEvent[]): Fixture {
-  const redacted = sanitizeEventPaths(redactEvents(sortEvents(events), options));
+  const redacted = sanitizeEventPaths(events);
   const fixture: Fixture = {
     version: 1,
     name: options.name ?? basename(resolve(options.output)),
