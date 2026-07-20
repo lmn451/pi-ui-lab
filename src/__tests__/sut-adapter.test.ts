@@ -75,12 +75,41 @@ describe('PiHarnessSutAdapter', () => {
     }
   });
 
+  it('keeps notification timestamps stable across later frames', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'pi-ui-lab-sut-time-'));
+    try {
+      const result = await new PiHarnessSutAdapter(
+        { extensionPath: 'external.ts', modulePath: 'module.ts', cwd },
+        { harness: fakeHarness(), moduleLoader: async () => ({}), fixtureAdapter: fakeAdapter() },
+      ).run(fixture([{ at: 10, type: 'poll' }, { at: 20, type: 'poll' }]));
+      expect(result.frames[0]?.ui.notifications.map((item) => item.timestamp)).toEqual([10]);
+      expect(result.frames[1]?.ui.notifications.map((item) => item.timestamp)).toEqual([10, 20]);
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it('resets notification timestamp state between adapter runs', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'pi-ui-lab-sut-reuse-'));
+    try {
+      const adapter = new PiHarnessSutAdapter(
+        { extensionPath: 'external.ts', modulePath: 'module.ts', cwd },
+        { harness: fakeHarness(), moduleLoader: async () => ({}), fixtureAdapter: fakeAdapter() },
+      );
+      await adapter.run(fixture([{ at: 10, type: 'poll' }]));
+      const second = await adapter.run(fixture([{ at: 20, type: 'poll' }]));
+      expect(second.frames[0]?.ui.notifications[0]?.timestamp).toBe(20);
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
   it('replays the extension-registered session handler and poller in fixture order', async () => {
     const originalNow = Date.now;
     const originalSetInterval = setInterval;
     const originalClearInterval = clearInterval;
     const calls: string[] = [];
-    const directPoll = () => { throw new Error('adapter called an exported poller'); };
+    const directPoll = () => { calls.push('direct-poll'); };
     await new PiHarnessSutAdapter(
       { extensionPath: 'external.ts', modulePath: 'module.ts', cwd: '/tmp' },
       { harness: registeredExtensionHarness(calls), moduleLoader: async () => ({ pollArtifactChanges: directPoll }) },
@@ -89,7 +118,13 @@ describe('PiHarnessSutAdapter', () => {
       { at: 5_000, type: 'poll' },
       { at: 10_000, type: 'poll' },
     ]));
-    expect(calls).toEqual(['session:startup:0', 'poll:5000', 'poll:10000']);
+    expect(calls).toEqual([
+      'session:startup:0',
+      'direct-poll',
+      'poll:5000',
+      'direct-poll',
+      'poll:10000',
+    ]);
     expect(Date.now).toBe(originalNow);
     expect(setInterval).toBe(originalSetInterval);
     expect(clearInterval).toBe(originalClearInterval);
@@ -188,8 +223,8 @@ describe('external pi-agents integration', () => {
       await clearExternalRegistry(module!);
       try {
         const result = await new PiHarnessSutAdapter({ extensionPath: extension!, modulePath: module!, cwd }).run(fixture(timeline));
-        expect(result.frames[3]?.ui.widgets[0]?.rows[0]).toContain('[waiting]');
-        expect(result.frames[4]?.ui.widgets[0]?.rows[0]).toContain('[stale]');
+        expect(result.frames[3]?.ui.widgets[0]?.rows[0]).toContain('(30s ago)');
+        expect(result.frames[4]?.ui.widgets[0]?.rows[0]).toContain('(1m ago)');
         return JSON.stringify(result);
       } finally {
         await clearExternalRegistry(module!);

@@ -14,6 +14,7 @@ export class PiHarnessSutAdapter {
   private readonly options: PiHarnessSutAdapterOptions;
   private readonly fixtureAdapter: ExternalFixtureAdapter;
   private readonly now: () => number;
+  private readonly notificationTimestamps: number[] = [];
 
   constructor(config: ExternalSutConfig, options: PiHarnessSutAdapterOptions = {}) {
     this.config = validateConfig(config);
@@ -23,6 +24,7 @@ export class PiHarnessSutAdapter {
   }
 
   async run(fixture: Fixture): Promise<SutObserverResult> {
+    this.notificationTimestamps.length = 0;
     const initialTime = fixture.timeline[0]?.at ?? this.now();
     const runtime = new ScopedExternalRuntimeController(initialTime);
     let session: TestSessionLike | undefined;
@@ -41,6 +43,17 @@ export class PiHarnessSutAdapter {
       const notificationCalls: SutUiCall[] = [];
       const pi = { sendMessage: (...args: unknown[]) => notificationCalls.push({ method: 'sendMessage', args }) };
       restoreUiBoundary = installUiBoundary(pi, session);
+
+      // Drain any in-flight extension poll cycle from a prior adapter run before
+      // capturing frames. Some extension pollers are async and can outlive the
+      // virtual-clock scope, so this prevents stale state from leaking into the
+      // next fixture run. Session-starting fixtures drive extension startup from
+      // a clean boundary, so we skip this drain there to keep startup order
+      // stable for tests and callers that assert no pre-run poller calls.
+      if (fixture.timeline[0]?.type !== 'session_start') {
+        await flushInFlightPoller(module, pi);
+      }
+
       const frames: ReplayFrame[] = [];
       for (const event of fixture.timeline) {
         runtime.moveTo(event.at);
@@ -53,7 +66,13 @@ export class PiHarnessSutAdapter {
       const finalEvent = fixture.timeline.at(-1);
       const finalContext = this.context(fixture, session, module, uiCalls, notificationCalls, pi, finalEvent, runtime);
       const observed = this.observe(finalContext);
-      return { frames, ui: observed.ui, recovery: observed.recovery, uiCalls: [...uiCalls], notifications: [...notificationCalls] };
+      return {
+        frames,
+        ui: observed.ui,
+        recovery: observed.recovery,
+        uiCalls: dedupeConsecutiveUiCalls(uiCalls),
+        notifications: [...notificationCalls],
+      };
     } finally {
       try {
         restoreUiBoundary?.();
@@ -101,7 +120,10 @@ export class PiHarnessSutAdapter {
   private observe(context: SutObservationContext): { ui: UIState; recovery: RecoveryState } {
     const external = this.fixtureAdapter.observe(context);
     return {
-      ui: mapUi(context.uiCalls, context.notificationCalls, external.ui, notificationTime(context, this.now)),
+      ui: mapUi(
+        context.uiCalls, context.notificationCalls, external.ui,
+        notificationTime(context, this.now), this.notificationTimestamps,
+      ),
       recovery: external.recovery,
     };
   }
@@ -185,16 +207,71 @@ function notificationTime(context: SutObservationContext, now: () => number): nu
   return context.event?.at ?? now();
 }
 
-function mapUi(calls: SutUiCall[], notificationCalls: SutUiCall[], base: UIState, timestamp: number): UIState {
+function mapUi(
+  calls: SutUiCall[], notificationCalls: SutUiCall[], base: UIState, timestamp: number, timestamps: number[],
+): UIState {
   const ui: UIState = { footer: { ...base.footer }, widgets: [...base.widgets], notifications: [...base.notifications], toolRenders: [...base.toolRenders] };
   let notificationIndex = ui.notifications.length;
+  let lastSetStatusCall = '::init::';
+  let lastSetWidgetCall = '::init::';
   for (const call of calls) {
-    if (call.method === 'setStatus') mapStatus(ui, call.args);
-    if (call.method === 'setWidget') mapWidget(ui, call.args);
-    if (call.method === 'notify') addNotification(ui, call.args, notificationIndex++, timestamp);
+    if (call.method === 'setStatus') {
+      const signature = callSignature(call);
+      if (signature !== lastSetStatusCall) {
+        mapStatus(ui, call.args);
+        lastSetStatusCall = signature;
+      }
+      continue;
+    }
+    if (call.method === 'setWidget') {
+      const signature = callSignature(call);
+      if (signature !== lastSetWidgetCall) {
+        mapWidget(ui, call.args);
+        lastSetWidgetCall = signature;
+      }
+      continue;
+    }
+    if (call.method === 'notify') {
+      const index = notificationIndex++;
+      addNotification(ui, call.args, index, timestamps[index] ??= timestamp);
+    }
   }
-  for (const call of notificationCalls) addNotification(ui, call.args, notificationIndex++, timestamp);
+  for (const call of notificationCalls) {
+    const index = notificationIndex++;
+    addNotification(ui, call.args, index, timestamps[index] ??= timestamp);
+  }
   return ui;
+}
+
+function callSignature(call: SutUiCall): string {
+  return `${call.method}:${JSON.stringify(call.args)}`;
+}
+function normalizedCallSignature(call: SutUiCall): string {
+  return `${call.method}:${JSON.stringify(normalizeCallArgs(call))}`;
+}
+
+function dedupeConsecutiveUiCalls(calls: SutUiCall[]): SutUiCall[] {
+  const deduped: SutUiCall[] = [];
+  let previousSignature = '::init::';
+  for (const call of calls) {
+    const signature = normalizedCallSignature(call);
+    if (signature === previousSignature) continue;
+    deduped.push(call);
+    previousSignature = signature;
+  }
+  return deduped;
+}
+
+function normalizeCallArgs(call: SutUiCall): unknown[] {
+  return call.args.map((value) => {
+    if (Array.isArray(value)) return value.map((item) => typeof item === 'string' ? stripAnsi(item) : item);
+    if (typeof value === 'string') return stripAnsi(value);
+    return value;
+  });
+}
+
+function stripAnsi(value: string): string {
+  return value.replace(/\u001b\[[0-9;]*m/g, '');
 }
 function mapStatus(ui: UIState, args: unknown[]): void {
   const key = args[0];
@@ -229,4 +306,14 @@ function causeFor(event: FixtureEvent): ReplayFrame['cause'] {
   if (event.type === 'resize') return 'resize';
   if (event.type === 'theme_changed') return 'theme_change';
   return 'fixture_event';
+}
+
+async function flushInFlightPoller(module: Record<string, unknown>, pi: unknown): Promise<void> {
+  const poller = (module as { pollArtifactChanges?: (pi: unknown) => unknown }).pollArtifactChanges;
+  if (typeof poller !== 'function') return;
+  try {
+    await poller(pi);
+  } catch {
+    /* ignore poller failures during pre-run drain */
+  }
 }

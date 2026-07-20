@@ -18,6 +18,13 @@ interface PersistedEntry {
   lastSnapshotEventTs?: number;
 }
 
+type SessionLike = {
+  sessionManager?: {
+    getSessionId?: () => string;
+    getEntries?: () => unknown[];
+  };
+};
+
 interface StateFile { schemaVersion: 2; parent: string; states: Record<string, PersistedEntry> }
 
 /** Optional structural adapter for pi-subagentura's documented test exports. */
@@ -32,11 +39,46 @@ export function createPiSubagenturaAdapter(): ExternalFixtureAdapter {
       if (event.type === 'artifact_created') await context.emitSessionStart('resume');
       if (event.type === 'reload') await context.emitSessionStart('reload');
       if (event.type === 'artifact_updated') seedLiveActivity(context.module, event.artifactId, event.at);
+
+      const session = context.session as SessionLike | undefined;
+      await rehydrate(context.module, context.cwd, session?.sessionManager);
+
+      if (shouldPoll(event)) {
+        await poll(context.module, context.pi);
+      }
     },
     observe(context) {
       return { ui: emptyUi(), recovery: observeRecovery(context.module, artifacts, context.cwd) };
     }
   };
+}
+
+function shouldPoll(event: FixtureEvent): boolean {
+  return !(
+    event.type === 'checkpoint'
+    || event.type === 'resize'
+    || event.type === 'theme_changed'
+    || event.type === 'key'
+    || event.type === 'session_start'
+  );
+}
+
+async function poll(module: Record<string, unknown>, pi: unknown): Promise<void> {
+  const poller = module.pollArtifactChanges;
+  if (typeof poller !== 'function') return;
+  await poller(pi);
+}
+
+async function rehydrate(
+  module: Record<string, unknown>,
+  cwd: string,
+  sessionManager: SessionLike['sessionManager'],
+): Promise<void> {
+  const rehydrateInteractiveSubagents = module.rehydrateInteractiveSubagents;
+  if (typeof rehydrateInteractiveSubagents !== 'function') return;
+  const sessionId = sessionManager?.getSessionId?.();
+  const entries = sessionManager?.getEntries?.() ?? [];
+  await rehydrateInteractiveSubagents(cwd, sessionId, entries);
 }
 
 function materialize(event: FixtureEvent, context: SutObservationContext, artifacts: Map<string, string>): void {
@@ -70,7 +112,13 @@ function materialize(event: FixtureEvent, context: SutObservationContext, artifa
       appendJsonEvent(directory, { ts: event.at, type: 'error', status: 'error', message: event.error ?? 'Task failed' });
       writeFileSync(join(directory, 'output.md'), event.error ?? 'Task failed');
     } else if (event.type === 'done') {
-      appendJsonEvent(directory, { ts: event.at, type: 'done', status: 'done', summary: event.content ?? 'Task completed' });
+      appendJsonEvent(directory, {
+        ts: event.at,
+        type: 'done',
+        status: 'done',
+        summary: event.content ?? 'Task completed',
+        message: event.content,
+      });
       writeFileSync(join(directory, 'output.md'), event.content ?? 'Task completed');
     } else {
       appendJsonEvent(directory, { ts: event.at, type: 'tool_activity', status: 'running', summary: event.reason ?? 'waiting' });
@@ -80,6 +128,7 @@ function materialize(event: FixtureEvent, context: SutObservationContext, artifa
 }
 
 function ensureState(context: SutObservationContext, id: string, directory: string): void {
+  assertArtifactId(id);
   const file = statePath(context.cwd);
   const state = readState(file);
   state.states[id] ??= {
@@ -171,7 +220,15 @@ function readState(file: string): StateFile {
   } catch { /* malformed external state is replaced by a fresh sandbox state */ }
   return empty;
 }
-function defaultArtifact(cwd: string, id: string): string { return join(cwd, '.pi', 'subagentura-artifacts', id); }
+function defaultArtifact(cwd: string, id: string): string {
+  assertArtifactId(id);
+  return safePath(cwd, join('.pi', 'subagentura-artifacts', id));
+}
+function assertArtifactId(id: string): void {
+  if (!id || id === '.' || id === '..' || id === '__proto__' || /[\\/\0]/u.test(id)) {
+    throw new Error(`Unsafe artifact id: ${id}`);
+  }
+}
 function safePath(cwd: string, candidate: string): string {
   const target = resolve(cwd, candidate);
   const rel = relative(resolve(cwd), target);
