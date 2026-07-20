@@ -18,19 +18,6 @@ export interface ProcessorState {
   theme: string;
 }
 
-const defaultUIState = (): UIState => ({
-  footer: { status: 'stale', activeAgents: 0 },
-  widgets: [],
-  notifications: [],
-  toolRenders: [],
-});
-
-const defaultRecoveryState = (): RecoveryState => ({
-  cursors: {},
-  processedReceipts: [],
-  artifactEvents: [],
-});
-
 export function processEvent(
   event: FixtureEvent,
   currentState: ProcessorState,

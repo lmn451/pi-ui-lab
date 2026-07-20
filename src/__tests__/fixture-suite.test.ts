@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { validateFixture } from '../schema/validate.js';
-import type { Fixture, FixtureEvent, EventType } from '../types.js';
+import type { Fixture, EventType } from '../types.js';
 
 const FIXTURES_DIR = join(process.cwd(), 'fixtures');
 

@@ -8,7 +8,7 @@ import {
   toHaveNoUnexpectedScrollback,
   toHaveDistinctRegions,
 } from '../assertions/terminal.js';
-import type { TerminalState, Viewport, Cell, CellGrid } from '../types.js';
+import type { TerminalState, Viewport, Cell } from '../types.js';
 
 function makeCell(char = ' ', width = 1): Cell {
   return { char, width };

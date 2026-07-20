@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { writeFile, unlink, mkdir } from 'node:fs/promises';
+import { writeFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { FixtureLoader } from '../fixtures/fixture-loader.js';
 import type { Fixture } from '../types.js';

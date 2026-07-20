@@ -8,7 +8,7 @@ import type { Fixture, FixtureEvent } from '../types.js';
 const FIXTURES_DIR = join(process.cwd(), 'fixtures');
 
 async function listFixtureFiles(): Promise<string[]> {
-  const { readdirSync, statSync } = await import('node:fs');
+  const { readdirSync } = await import('node:fs');
   const results: string[] = [];
 
   function walk(dir: string) {

@@ -4,8 +4,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { detectOverflow } from '../capture/overflow-detector.js';
-import { createEmptyGrid, setCell } from '../capture/cell-grid.js';
-import type { Viewport } from '../types.js';
+import { createEmptyGrid } from '../capture/cell-grid.js';
 
 describe('detectOverflow', () => {
   it('reports no overflow when content fits', () => {

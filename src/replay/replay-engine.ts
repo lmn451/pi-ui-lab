@@ -113,15 +113,15 @@ export class ReplayEngine {
       clock: this.clock,
       events: this.fixture.timeline,
       pollIntervalMs: this.fixture.pollIntervalMs,
-      onEvent: (event, timeMs) => {
+      onEvent: (event, _timeMs) => {
         if (typeof event !== 'string') {
-          this.processEvent(event, timeMs);
+          this.processEvent(event, _timeMs);
         }
       },
     });
   }
 
-  private processEvent(event: FixtureEvent, timeMs: number): void {
+  private processEvent(event: FixtureEvent, _timeMs: number): void {
     this.currentState = processEvent(event, this.currentState);
 
     if (event.type === 'checkpoint' && event.name) {
