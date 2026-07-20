@@ -5,7 +5,10 @@ import type { FixtureEvent, ReloadEvent } from '../types.js';
  * Stable sort of events by `at` timestamp.
  */
 export function sortEvents(events: FixtureEvent[]): FixtureEvent[] {
-  return [...events].sort((a, b) => a.at - b.at);
+  return [...events]
+    .map((event, index) => ({ event, index }))
+    .sort((left, right) => left.event.at - right.event.at || left.index - right.index)
+    .map(({ event }) => event);
 }
 
 /**

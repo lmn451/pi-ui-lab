@@ -17,6 +17,7 @@ function makeFrame(index: number, timeMs: number): ReplayFrame {
     index,
     timeMs,
     cause: 'fixture_event',
+    sequenceIds: ['test-fixture'],
     viewport: { cols: 80, rows: 24 },
     theme: 'default',
     ui: {

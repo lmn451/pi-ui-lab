@@ -66,6 +66,20 @@ describe('ReplayEngine', () => {
       expect(result.frames[0].cause).toBe('fixture_event');
       engine.dispose();
     });
+
+    it('records stable sequence IDs on frames', async () => {
+      const fixture = makeFixture();
+      const engine = new ReplayEngine(fixture);
+
+      const result = await engine.run();
+
+      expect(result.frames.map((frame) => frame.sequenceIds)).toEqual([
+        ['seq-000000'],
+        ['seq-000001'],
+        ['seq-000002'],
+      ]);
+      engine.dispose();
+    });
   });
 
   describe('runUntil()', () => {

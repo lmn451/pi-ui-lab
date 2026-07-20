@@ -17,16 +17,20 @@ type ScheduledEntry = {
   type: 'fixture';
   event: FixtureEvent;
   order: number;
+  sequenceId: string;
 };
 
 type TimerEntry = {
   type: 'timer';
   timeMs: number;
+  timerId: number;
+  sequenceId: string;
 };
 
 type PollEntry = {
   type: 'poll';
   timeMs: number;
+  sequenceId: string;
 };
 
 type QueueEntry = ScheduledEntry | TimerEntry | PollEntry;
@@ -39,6 +43,8 @@ export class DeterministicScheduler {
   private onEvent: SchedulerOptions['onEvent'];
   private frameCount = 0;
   private currentIndex = 0;
+  private nextSequenceNumber = 0;
+  private lastProcessedSequenceIds: string[] = [];
 
   constructor(opts: SchedulerOptions) {
     this.clock = opts.clock;
@@ -46,8 +52,14 @@ export class DeterministicScheduler {
     this.onEvent = opts.onEvent;
 
     this.fixtureQueue = opts.events
-      .map((event, order) => ({ type: 'fixture' as const, event, order }))
-      .sort((a, b) => a.event.at - b.event.at || a.order - b.order);
+      .map((event, index) => ({ event, index }))
+      .sort((left, right) => left.event.at - right.event.at || left.index - right.index)
+      .map((item, order) => ({
+        type: 'fixture' as const,
+        event: item.event,
+        order,
+        sequenceId: this.nextSequenceId(),
+      }));
 
     this.nextPollTime = this.clock.now() + this.pollIntervalMs;
   }
@@ -56,12 +68,14 @@ export class DeterministicScheduler {
   advance(): FrameCause | null {
     const nextTime = this.findNextTime();
     if (nextTime === null) return null;
-    const timerDue = this.clock.getPendingTimers().some((timer) => timer.fireAt <= nextTime);
+    this.lastProcessedSequenceIds = [];
     this.clock.advanceTo(nextTime);
-    const entries = this.collectDueEntries(timerDue);
+    const dueTimers = this.clock.getExecutedTimers();
+    const entries = this.collectDueEntries(dueTimers);
     if (entries.length === 0) return null;
     const cause = this.classifyCause(entries);
     this.processEntries(entries);
+    this.lastProcessedSequenceIds = entries.map((entry) => entry.sequenceId);
     this.frameCount++;
     return cause;
   }
@@ -78,6 +92,10 @@ export class DeterministicScheduler {
     while (safety++ < MAX_ITERATIONS) {
       if (this.advance() === null) break;
     }
+  }
+
+  getLastProcessedSequenceIds(): string[] {
+    return [...this.lastProcessedSequenceIds];
   }
 
   /** Current frame counter. */
@@ -112,7 +130,7 @@ export class DeterministicScheduler {
   }
 
   /** Collect all entries due at the current clock time. */
-  private collectDueEntries(timerDue: boolean): QueueEntry[] {
+  private collectDueEntries(dueTimers: Array<{ id: number; fireAt: number }>): QueueEntry[] {
     const time = this.clock.now();
     const entries: QueueEntry[] = [];
 
@@ -126,11 +144,22 @@ export class DeterministicScheduler {
     }
 
     // 2. Virtual-clock timers execute inside clock.advanceTo().
-    if (timerDue) entries.push({ type: 'timer', timeMs: time });
+    for (const timer of dueTimers) {
+      entries.push({
+        type: 'timer',
+        timeMs: timer.fireAt,
+        timerId: timer.id,
+        sequenceId: this.nextSequenceId(),
+      });
+    }
 
     // 3. Poll ticks — only if more events remain
     if (this.hasMoreEvents() && time >= this.nextPollTime) {
-      entries.push({ type: 'poll', timeMs: this.nextPollTime });
+      entries.push({
+        type: 'poll',
+        timeMs: this.nextPollTime,
+        sequenceId: this.nextSequenceId(),
+      });
       this.nextPollTime = time + this.pollIntervalMs;
     }
 
@@ -148,6 +177,11 @@ export class DeterministicScheduler {
         this.onEvent('poll', time);
       }
     }
+  }
+
+  private nextSequenceId(): string {
+    const id = String(this.nextSequenceNumber++).padStart(6, '0');
+    return `seq-${id}`;
   }
 
   private classifyCause(entries: QueueEntry[]): FrameCause {

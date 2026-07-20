@@ -300,6 +300,8 @@ export interface ReplayFrame {
   index: number;
   timeMs: number;
   cause: FrameCause;
+  /** Ordered action IDs processed during this frame (fixtures, timers, poll). */
+  sequenceIds: string[];
   viewport: Viewport;
   theme: string;
   ui: UIState;

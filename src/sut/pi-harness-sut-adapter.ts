@@ -110,6 +110,7 @@ export class PiHarnessSutAdapter {
       index,
       timeMs: event.at,
       cause: causeFor(event),
+      sequenceIds: [],
       viewport: this.options.viewport ?? fixture.viewport,
       theme: this.options.theme ?? fixture.theme,
       ui: observed.ui,

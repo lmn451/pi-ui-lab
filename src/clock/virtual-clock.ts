@@ -19,6 +19,11 @@ interface PendingTimer {
   callback: () => void;
 }
 
+interface ExecutedTimer {
+  id: number;
+  fireAt: number;
+}
+
 const DEFAULT_MAX_STEPS = 10_000;
 const DEFAULT_MAX_DURATION = 3_600_000;
 const TIMER_LOOP_THRESHOLD = 100;
@@ -30,6 +35,7 @@ export class VirtualClock implements Clock {
   private maxDuration: number;
   private nextId = 1;
   private timers: PendingTimer[] = [];
+  private lastExecutedTimers: ExecutedTimer[] = [];
   private timestampExecutions = new Map<number, number>();
   private totalSteps = 0;
 
@@ -63,6 +69,7 @@ export class VirtualClock implements Clock {
 
   /** Advance to the next pending timer, fire it, return the new time. */
   step(): number {
+    this.lastExecutedTimers = [];
     this.checkStepLimit();
     const next = this.timers.shift();
     if (!next) {
@@ -71,12 +78,14 @@ export class VirtualClock implements Clock {
     this.checkMaxDuration(next.fireAt);
     this.currentTime = next.fireAt;
     this.detectLoop(this.currentTime);
+    this.lastExecutedTimers = [{ id: next.id, fireAt: next.fireAt }];
     next.callback();
     return this.currentTime;
   }
 
   /** Advance to a target time, firing all timers in [current, timeMs]. */
   advanceTo(timeMs: number): void {
+    this.lastExecutedTimers = [];
     if (timeMs < this.currentTime) {
       throw new Error(
         `advanceTo(${timeMs}) is before current time ${this.currentTime}`,
@@ -88,6 +97,7 @@ export class VirtualClock implements Clock {
       const next = this.timers.shift()!;
       this.currentTime = next.fireAt;
       this.detectLoop(this.currentTime);
+      this.lastExecutedTimers.push({ id: next.id, fireAt: next.fireAt });
       next.callback();
     }
     this.currentTime = timeMs;
@@ -103,6 +113,11 @@ export class VirtualClock implements Clock {
   /** Return a shallow copy of pending timers for diagnostics. */
   getPendingTimers(): Array<{ id: number; fireAt: number }> {
     return this.timers.map(({ id, fireAt }) => ({ id, fireAt }));
+  }
+
+  /** Return timers executed by the most recent clock tick/advance. */
+  getExecutedTimers(): ExecutedTimer[] {
+    return [...this.lastExecutedTimers];
   }
 
   /** Reset all state (useful between tests). */

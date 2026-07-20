@@ -58,6 +58,60 @@ describe('DeterministicScheduler', () => {
 
       expect(log).toEqual(['first', 'second']);
     });
+
+    it('uses canonical ordering for mixed same-time fixture and timers', () => {
+      const clock = new VirtualClock();
+      const observed: string[] = [];
+      const events: FixtureEvent[] = [
+        { at: 100, type: 'activity', content: 'fixture-one' },
+        { at: 100, type: 'done', content: 'fixture-two' },
+      ];
+
+      clock.setTimeout(() => {}, 100);
+
+      const scheduler = new DeterministicScheduler({
+        clock,
+        events,
+        pollIntervalMs: 10000,
+        onEvent: (event, time) => {
+          if (typeof event === 'string') observed.push(`${event}@${time}`);
+          else observed.push(`${event.content ?? event.type}@${time}`);
+        },
+      });
+
+      scheduler.advance();
+
+      expect(observed).toEqual(['fixture-one@100', 'fixture-two@100', 'timer@100']);
+      expect(scheduler.getLastProcessedSequenceIds()).toEqual([
+        'seq-000000',
+        'seq-000001',
+        'seq-000002',
+      ]);
+    });
+
+    it('assigns sequence IDs in the canonical timeline order after sorting', () => {
+      const clock = new VirtualClock();
+      const events: FixtureEvent[] = [
+        { at: 200, type: 'activity', content: 'late' },
+        { at: 100, type: 'session_start', sessionDir: '/tmp/test' },
+      ];
+
+      const scheduler = new DeterministicScheduler({
+        clock,
+        events,
+        pollIntervalMs: 10000,
+        onEvent: () => {},
+      });
+
+      scheduler.advance();
+      const firstIds = scheduler.getLastProcessedSequenceIds();
+      scheduler.advance();
+
+      const secondIds = scheduler.getLastProcessedSequenceIds();
+
+      expect(firstIds).toEqual(['seq-000000']);
+      expect(secondIds).toEqual(['seq-000001']);
+    });
   });
 
   describe('advance()', () => {

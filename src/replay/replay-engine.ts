@@ -134,6 +134,7 @@ export class ReplayEngine {
       index: this.frames.length,
       timeMs: this.clock.now(),
       cause: cause as ReplayFrame['cause'],
+      sequenceIds: this.scheduler?.getLastProcessedSequenceIds() ?? [],
       viewport: { ...this.currentState.viewport },
       theme: this.currentState.theme,
       ui: {
