@@ -40,6 +40,7 @@ export class PiHarnessSutAdapter {
         mockUI: {},
       });
       const uiCalls = session.events.ui as SutUiCall[];
+      uiCalls.length = 0;
       const notificationCalls: SutUiCall[] = [];
       const pi = { sendMessage: (...args: unknown[]) => notificationCalls.push({ method: 'sendMessage', args }) };
       restoreUiBoundary = installUiBoundary(pi, session);
@@ -216,38 +217,38 @@ function mapUi(
   let lastSetStatusCall = '::init::';
   let lastSetWidgetCall = '::init::';
   for (const call of calls) {
+    const normalizedCall = { ...call, args: normalizeCallArgs(call) };
     if (call.method === 'setStatus') {
-      const signature = callSignature(call);
+      const signature = callSignature(normalizedCall);
       if (signature !== lastSetStatusCall) {
-        mapStatus(ui, call.args);
+        mapStatus(ui, normalizedCall.args);
         lastSetStatusCall = signature;
       }
       continue;
     }
     if (call.method === 'setWidget') {
-      const signature = callSignature(call);
+      const signature = callSignature(normalizedCall);
       if (signature !== lastSetWidgetCall) {
-        mapWidget(ui, call.args);
+        mapWidget(ui, normalizedCall.args);
         lastSetWidgetCall = signature;
       }
       continue;
     }
     if (call.method === 'notify') {
+      const normalizedNotify = { ...call, args: normalizeCallArgs(call) };
       const index = notificationIndex++;
-      addNotification(ui, call.args, index, timestamps[index] ??= timestamp);
+      addNotification(ui, normalizedNotify.args, index, timestamps[index] ??= timestamp);
     }
   }
   for (const call of notificationCalls) {
+    const normalizedCall = { ...call, args: normalizeCallArgs(call) };
     const index = notificationIndex++;
-    addNotification(ui, call.args, index, timestamps[index] ??= timestamp);
+    addNotification(ui, normalizedCall.args, index, timestamps[index] ??= timestamp);
   }
   return ui;
 }
 
 function callSignature(call: SutUiCall): string {
-  return `${call.method}:${JSON.stringify(call.args)}`;
-}
-function normalizedCallSignature(call: SutUiCall): string {
   return `${call.method}:${JSON.stringify(normalizeCallArgs(call))}`;
 }
 
@@ -255,7 +256,7 @@ function dedupeConsecutiveUiCalls(calls: SutUiCall[]): SutUiCall[] {
   const deduped: SutUiCall[] = [];
   let previousSignature = '::init::';
   for (const call of calls) {
-    const signature = normalizedCallSignature(call);
+    const signature = callSignature(call);
     if (signature === previousSignature) continue;
     deduped.push(call);
     previousSignature = signature;
@@ -293,8 +294,8 @@ function addNotification(ui: UIState, args: unknown[], index: number, timestamp:
   ui.notifications.push({ id: `external-${index}`, kind, message, timestamp, dismissed: false });
 }
 function notificationMessage(value: unknown): string {
-  if (typeof value === 'string') return value;
-  if (value && typeof value === 'object' && 'content' in value && typeof value.content === 'string') return value.content;
+  if (typeof value === 'string') return stripAnsi(value);
+  if (value && typeof value === 'object' && 'content' in value && typeof value.content === 'string') return stripAnsi(value.content);
   return JSON.stringify(value);
 }
 function notificationKind(value: unknown): NotificationState['kind'] {

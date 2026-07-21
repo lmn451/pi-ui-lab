@@ -59,6 +59,29 @@ function fakeAdapter(): ExternalFixtureAdapter {
   };
 }
 
+function ansiDoneAdapter(): ExternalFixtureAdapter {
+  return {
+    materializeEvent: () => {},
+    invokeEvent(event, context) {
+      const ui = (globalThis as {
+        __piSubagenturaUi?: {
+          setStatus: (...args: unknown[]) => void;
+          setWidget: (...args: unknown[]) => void;
+        };
+      }).__piSubagenturaUi;
+      if (event.type === 'session_start') {
+        ui?.setStatus('subagentura-running', '\u001b[33m1 sub-agent running\u001b[0m');
+      }
+      if (event.type === 'done') {
+        ui?.setWidget('subagentura-activity', [`\u001b[36mworker: waiting [${event.at}]\u001b[0m`]);
+        const pi = context.pi as { sendMessage: (...args: unknown[]) => void };
+        pi.sendMessage({ content: `\u001b[32mdone-${event.at}\u001b[0m` }, { deliverAs: 'followUp' });
+      }
+    },
+    observe: () => ({ ui: { footer: { status: 'stale', activeAgents: 0 }, widgets: [], notifications: [], toolRenders: [] }, recovery: { cursors: {}, processedReceipts: [], artifactEvents: [] } }),
+  };
+}
+
 describe('PiHarnessSutAdapter', () => {
   it('maps injected real-boundary calls without synthetic state processing', async () => {
     const cwd = mkdtempSync(join(tmpdir(), 'pi-ui-lab-sut-'));
@@ -128,6 +151,33 @@ describe('PiHarnessSutAdapter', () => {
     expect(Date.now).toBe(originalNow);
     expect(setInterval).toBe(originalSetInterval);
     expect(clearInterval).toBe(originalClearInterval);
+  });
+
+  it('keeps synthetic done-state call history deterministic across repeated runs', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'pi-ui-lab-sut-synthetic-done-'));
+    try {
+      const adapter = new PiHarnessSutAdapter(
+        { extensionPath: 'external.ts', modulePath: 'module.ts', cwd },
+        { harness: fakeHarness(), moduleLoader: async () => ({}), fixtureAdapter: ansiDoneAdapter() },
+      );
+      const timeline: FixtureEvent[] = [
+        { at: 0, type: 'session_start' },
+        { at: 10, type: 'done', agentId: 'agent-1', content: 'first' },
+        { at: 20, type: 'done', agentId: 'agent-1', content: 'second' },
+      ];
+      const first = await adapter.run(fixture(timeline));
+      const second = await adapter.run(fixture(timeline));
+      expect(first.frames.at(-1)?.ui.widgets[0]?.rows[0]).toBe('worker: waiting [20]');
+      expect(second.frames.at(-1)?.ui.widgets[0]?.rows[0]).toBe('worker: waiting [20]');
+      expect(first.frames.at(-1)?.ui.notifications.map((item) => item.message)).toEqual(['done-10', 'done-20']);
+      expect(second.frames.at(-1)?.ui.notifications.map((item) => item.message)).toEqual(['done-10', 'done-20']);
+      expect(second.frames.at(-1)?.ui.notifications.map((item) => item.timestamp)).toEqual([10, 20]);
+      expect(first.ui.notifications).toEqual(second.ui.notifications);
+      expect(first.notifications).toEqual(second.notifications);
+      expect(first.uiCalls).toEqual(second.uiCalls);
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
   });
 
   it('restores clock and UI globals after a failed fixture event', async () => {
