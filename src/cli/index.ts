@@ -115,13 +115,13 @@ const fixtureCommand = program
   .description('Manage fixtures');
 fixtureCommand
   .command('import')
-  .description('Import fixtures from session recordings')
+  .description('Import fixtures from session recordings and emit a portable fixture package')
   .argument('[sources...]', 'paths or session directories')
   .option('--session <path>', 'session JSONL file')
   .option('--events <path>', 'events NDJSON file')
   .option('--state <path>', 'state JSON file')
   .option('--artifacts <directory>', 'artifacts directory')
-  .option('--output <directory>', 'output fixture directory')
+  .option('--output <directory>', 'output fixture directory (fixture.json + import-manifest.json)')
   .action(async (sources: string[], opts: Record<string, string>) => {
     try {
       const exitCode = await runImport(sources, opts);
